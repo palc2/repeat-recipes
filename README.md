@@ -30,7 +30,7 @@ No accounts. No backend. No build step. Just one HTML file.
 1. Create a new GitHub repository
 2. Upload `index.html`
 3. Go to **Settings → Pages → Deploy from branch → main / root**
-4. Your collection is live at `https://yourusername.github.io/your-repo-name`
+4. Your collection is live at `https://palc2.github.io/repeat-recipes`
 
 ### Keeping recipes after closing the page
 Each time you save a recipe, the page downloads an updated `recipes.json`. Push that file to your repo alongside `index.html` and your collection will persist across visits.
