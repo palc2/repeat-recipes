@@ -136,7 +136,7 @@ function parseRecipeText(raw) {
     if (/^(INSTRUCTIONS?|DIRECTIONS?|METHODS?|STEPS?)$/.test(up)) { mode = "steps"; continue; }
     if (isMetaLine(line))                                  { meta.push(line); continue; }
 
-    const clean = line.replace(/^[•\-\*\u2022]\s*/, "").replace(/^\d+[\.)\s]\s*/, "").trim();
+    const clean = line.replace(/^[•\-\*\u2022]\s*/, "").replace(/^\d+[.)]+\s*/, "").trim();
 
     if (mode === "ingredients") {
       if (isStepLine(clean)) { mode = "steps"; steps.push(clean); }
