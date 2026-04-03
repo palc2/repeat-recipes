@@ -304,7 +304,7 @@ function App() {
     const parsed = parseRecipeText(caption);
     if (!parsed.ingredients.length && !parsed.steps.length) return setError("Couldn't detect sections. Make sure your text includes ingredients and instructions.");
     setError("");
-    setDraft({ title: parsed.titleSuggestions[0]||"", description:"", time:parsed.time, servings:parsed.servings, tags:[], cookType:null, ingredients:parsed.ingredients, steps:parsed.steps, titleSuggestions:parsed.titleSuggestions, tagSuggestions:parsed.tagSuggestions });
+    setDraft({ title: parsed.titleSuggestions[0]||"", description:"", time:parsed.time, servings:parsed.servings, tags:[], cookType:null, sourceLink:"", ingredients:parsed.ingredients, steps:parsed.steps, titleSuggestions:parsed.titleSuggestions, tagSuggestions:parsed.tagSuggestions });
     setStep(2);
   }
   function handleSave() {
@@ -453,9 +453,16 @@ function App() {
                 {(r.tags||[]).slice(0,5).map(t => <span key={t} style={{ padding:"2px 9px", background:"#f0e8d8", borderRadius:20, fontSize:"0.68rem", color:"#c45d1a", fontWeight:600 }}>{t}</span>)}
               </div>
             </div>
-            <div style={{ padding:"10px 20px", borderTop:"1px solid rgba(196,93,26,0.08)", display:"flex", justifyContent:"space-between" }}>
+            <div style={{ padding:"10px 20px", borderTop:"1px solid rgba(196,93,26,0.08)", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
               <span style={{ fontSize:"0.72rem", color:"#a08060" }}>{(r.ingredients||[]).length} ingredients</span>
-              <span style={{ fontSize:"0.72rem", color:"#c45d1a", fontWeight:600 }}>View recipe →</span>
+              <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                {r.sourceLink && (
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#c45d1a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+                  </svg>
+                )}
+                <span style={{ fontSize:"0.72rem", color:"#c45d1a", fontWeight:600 }}>View recipe →</span>
+              </div>
             </div>
           </div>
         ))}
@@ -505,6 +512,18 @@ function App() {
               {(viewRec.tags||[]).length > 0 && (
                 <div style={{ display:"flex", flexWrap:"wrap", gap:7, marginTop:18 }}>
                   {viewRec.tags.map(t => <span key={t} style={{ padding:"4px 12px", background:"#f0e8d8", borderRadius:20, fontSize:"0.76rem", color:"#c45d1a", fontWeight:600 }}>{t}</span>)}
+                </div>
+              )}
+              {viewRec.sourceLink && (
+                <div style={{ borderTop:"0.5px solid rgba(196,93,26,0.15)", marginTop:18, paddingTop:14, display:"flex", alignItems:"center", gap:10 }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#c45d1a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink:0 }}>
+                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+                  </svg>
+                  <a href={viewRec.sourceLink} target="_blank" rel="noopener noreferrer"
+                    style={{ fontSize:"0.82rem", color:"#c45d1a", textDecoration:"none", borderBottom:"1px solid rgba(196,93,26,0.3)", paddingBottom:1, wordBreak:"break-all", flex:1 }}>
+                    {viewRec.sourceLink.replace(/^https?:\/\/(www\.)?/, "")}
+                  </a>
+                  <span style={{ flexShrink:0, fontSize:"0.7rem", background:"#f0e8d8", color:"#c45d1a", borderRadius:20, padding:"2px 9px", fontWeight:600 }}>source ↗</span>
                 </div>
               )}
             </div>
@@ -569,6 +588,11 @@ function App() {
                         </button>
                       ))}
                     </div>
+                  </div>
+                  <div style={{ gridColumn:"1/-1" }}>
+                    <label style={S.lbl}>Source link</label>
+                    <input value={draft.sourceLink||""} onChange={e => setDraft({...draft,sourceLink:e.target.value})} style={S.inp} placeholder="https://instagram.com/p/…"/>
+                    <p style={{ fontSize:"0.72rem", color:"#a08060", margin:"4px 0 0" }}>Paste the URL where you found this recipe</p>
                   </div>
                   <TagEditor draft={draft} setDraft={setDraft} tagInput={tagInput} setTagInput={setTagInput} commitTagInput={commitTagInput} />
                 </div>
@@ -647,6 +671,11 @@ function App() {
                   </div>
                 </div>
                 <TagEditor draft={draft} setDraft={setDraft} tagInput={tagInput} setTagInput={setTagInput} commitTagInput={commitTagInput} />
+                <div style={{ gridColumn:"1/-1" }}>
+                  <label style={S.lbl}>Source link</label>
+                  <input value={draft.sourceLink||""} onChange={e => setDraft({...draft,sourceLink:e.target.value})} style={S.inp} placeholder="https://instagram.com/p/…"/>
+                  <p style={{ fontSize:"0.72rem", color:"#a08060", margin:"4px 0 0" }}>Paste the URL where you found this recipe</p>
+                </div>
               </div>
 
               <div style={{ marginTop:16 }}>
