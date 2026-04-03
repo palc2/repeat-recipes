@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>My Recipe Collection</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'DM Sans', sans-serif; background: #faf6f0; color: #1a1410; min-height: 100vh; }
+  button { font-family: 'DM Sans', sans-serif; }
+  input, textarea { font-family: 'DM Sans', sans-serif; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState } = React;
+
+// ── Emoji map ────────────────────────────────────────────────────────
+const EMOJIS = {
+  chicken:"🍗", salmon:"🐟", fish:"🐟", seafood:"🦐", shrimp:"🦐", beef:"🥩", pork:"🥩",
+  pasta:"🍝", rice:"🍚", soup:"🍲", salad:"🥗", cake:"🎂", chocolate:"🍫",
+  cookie:"🍪", bread:"🍞", pizza:"🍕", taco:"🌮", egg:"🥚", muffin:"🧁",
+  potato:"🥔", vegetarian:"🥦", vegan:"🌱", breakfast:"☕", dessert:"🍮",
+  noodle:"🍜", oat:"🥣", banana:"🍌", raspberry:"🫐", pancake:"🥞",
+  chickpea:"🫘", cracker:"🫙",
+};
+function getEmoji(r) {
+  const t = ((r.title||"") + " " + (r.tags||[]).join(" ")).toLowerCase();
+  for (const [k,v] of Object.entries(EMOJIS)) if (t.includes(k)) return v;
+  return "🍴";
+}
+
+// ── Tag rules ────────────────────────────────────────────────────────
+const TAG_RULES = [
+  { tags:["breakfast"],    words:["breakfast","muffin","pancake","waffle","oat","porridge","granola","egg","toast"] },
+  { tags:["dessert"],      words:["cake","cookie","brownie","chocolate","sweet","dessert","pudding","tart","pie"] },
+  { tags:["lunch"],        words:["sandwich","wrap","salad","soup","bowl"] },
+  { tags:["dinner"],       words:["roast","pasta","curry","stew","casserole","bake","chicken","beef","salmon","fish","pork"] },
+  { tags:["snack"],        words:["bar","ball","bite","snack","energy","cracker"] },
+  { tags:["high-protein"], words:["protein powder","protein","chicken breast","greek yogurt","cottage cheese","tofu","lentil","chickpea"] },
+  { tags:["vegetarian"],   words:["vegetarian","tofu","paneer","halloumi","chickpea"] },
+  { tags:["vegan"],        words:["vegan","plant-based","oat milk","almond milk","coconut milk","flax egg"] },
+  { tags:["gluten-free"],  words:["oat flour","almond flour","rice flour","gluten-free","gluten free","chickpea"] },
+  { tags:["dairy-free"],   words:["dairy-free","dairy free","oat milk","almond milk","coconut milk"] },
+  { tags:["low-carb"],     words:["almond flour","cauliflower","keto","low carb","low-carb"] },
+  { tags:["air fryer"],    words:["air fryer","airfryer"] },
+  { tags:["baked"],        words:["oven","bake","baked","preheat"] },
+  { tags:["no-bake"],      words:["no bake","no-bake","refrigerate","no oven"] },
+  { tags:["one-pan"],      words:["one pan","one-pan","one pot","skillet","sheet pan"] },
+  { tags:["quick"],        words:["15 min","20 min","10 min","12 min","quick","easy","simple"] },
+  { tags:["chocolate"],    words:["chocolate","cacao","cocoa"] },
+  { tags:["banana"],       words:["banana"] },
+  { tags:["raspberry"],    words:["raspberry","raspberries"] },
+  { tags:["oats"],         words:["oat","oats","oat flour"] },
+  { tags:["chicken"],      words:["chicken"] },
+  { tags:["salmon"],       words:["salmon"] },
+  { tags:["pasta"],        words:["pasta","spaghetti","penne","fettuccine","linguine"] },
+];
+
+function suggestTags(text) {
+  const lower = text.toLowerCase();
+  const found = new Set();
+  for (const rule of TAG_RULES)
+    if (rule.words.some(w => lower.includes(w))) rule.tags.forEach(t => found.add(t));
+  return [...found].slice(0, 8);
+}
+
+function titleCase(str) {
+  return str.replace(/\w\S*/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+}
+
+function suggestTitles(text) {
+  const lower = text.toLowerCase();
+  const titles = [];
+  const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
+
+  for (const line of lines) {
+    const up = line.toUpperCase().replace(/:$/, "");
+    if (/^(INGREDIENTS?|INSTRUCTIONS?|DIRECTIONS?|STEPS?|METHODS?)$/.test(up)) continue;
+    if (/^[•\-\*\d]/.test(line)) continue;
+    if (line.length > 4 && line.length < 60) { titles.push(titleCase(line)); break; }
+  }
+
+  const keyIngreds = ["raspberry","banana","chocolate","oat","salmon","chicken","beef","pasta","potato","mango","blueberry","strawberry","chickpea","avocado","lemon"];
+  const found = keyIngreds.filter(k => lower.includes(k));
+  const dishWords = ["muffin","cake","cookie","brownie","salad","bowl","pasta","soup","curry","roast","pancake","waffle","bar","ball","cracker","patty"];
+  const dish = dishWords.find(d => lower.includes(d));
+
+  if (found.length && dish) titles.push(titleCase(found.slice(0,2).join(" & ") + " " + dish + "s"));
+  else if (found.length)    titles.push(titleCase(found.slice(0,2).join(" & ") + " recipe"));
+  else if (dish)            titles.push(titleCase("homemade " + dish + "s"));
+  if (lower.includes("protein") && dish) titles.push(titleCase("protein " + (found[0]||"") + " " + dish + "s"));
+
+  return [...new Set(titles)].filter(Boolean).slice(0, 3);
+}
+
+// ── Smart parser ─────────────────────────────────────────────────────
+const STEP_VERBS = /^(blend|mix(?!ed)|combine|add|stir|fold|pour|heat|cook|bake|roast|fry|place|put|season|shape|sprinkle|top|serve|remove|let|allow|transfer|drain|preheat|whisk|beat|chop|slice|dice|mash|coat|toss|cover|simmer|boil|steam|sauté|saute|grill|broil|press|flatten|roll|cut|spread|line|divide|fill|store|freeze|cool|rest|brush|drizzle|prepare|make|bring|reduce|set|wait|ensure|taste|check|repeat)\b/i;
+
+function isStepLine(line)       { return STEP_VERBS.test(line) || line.length > 80; }
+function isIngredientLine(line) { return /^[\d½¼¾⅓⅔]/.test(line) || /^[•\-\*\u2022]/.test(line) || /^(pinch|handful|dash|splash)\b/i.test(line); }
+function isMetaLine(line)       { return /^(time|temp|temperature|serves|servings|yield|makes|calories|prep|cook|total)\s*:/i.test(line); }
+
+function parseRecipeText(raw) {
+  // Merge continuation lines (lowercase-starting lines glue to previous)
+  const rawLines = raw.split("\n");
+  const joined = [];
+  let i = 0;
+  while (i < rawLines.length) {
+    let line = rawLines[i].trim(); i++;
+    if (!line) { joined.push(""); continue; }
+    while (i < rawLines.length) {
+      const nxt = rawLines[i].trim();
+      if (nxt && nxt[0] === nxt[0].toLowerCase() && nxt[0] !== nxt[0].toUpperCase() && !isIngredientLine(nxt) && !/^\d+$/.test(nxt)) {
+        line = line + " " + nxt; i++;
+      } else break;
+    }
+    joined.push(line);
+  }
+
+  const ingredients = [], steps = [], meta = [];
+  let mode = null;
+
+  for (const raw of joined) {
+    const line = raw.trim();
+    if (!line || /^\d+$/.test(line)) continue;
+
+    const up = line.toUpperCase().replace(/:$/, "").trim();
+    if (/^INGREDIENTS?$/.test(up))                         { mode = "ingredients"; continue; }
+    if (/^(INSTRUCTIONS?|DIRECTIONS?|METHODS?|STEPS?)$/.test(up)) { mode = "steps"; continue; }
+    if (isMetaLine(line))                                  { meta.push(line); continue; }
+
+    const clean = line.replace(/^[•\-\*\u2022]\s*/, "").replace(/^\d+[.)]+\s*/, "").trim();
+
+    if (mode === "ingredients") {
+      if (isStepLine(clean)) { mode = "steps"; steps.push(clean); }
+      else                   { ingredients.push(clean); }
+    } else if (mode === "steps") {
+      steps.push(clean);
+    } else {
+      if (isStepLine(clean))       { mode = "steps";       steps.push(clean); }
+      else if (isIngredientLine(line)) { mode = "ingredients"; ingredients.push(clean); }
+      else                         { ingredients.push(clean); }
+    }
+  }
+
+  let time = "", servings = "";
+  for (const m of meta) {
+    if (/^(time|prep|cook|total)/i.test(m))          time     = m.replace(/^[^:]+:\s*/, "").trim();
+    if (/^(serves|servings|yield|makes)/i.test(m))   servings = m.replace(/^[^:]+:\s*/, "").trim();
+  }
+
+  return {
+    ingredients, steps, time, servings,
+    titleSuggestions: suggestTitles(raw),
+    tagSuggestions:   suggestTags(raw + " " + ingredients.join(" ") + " " + steps.join(" ")),
+  };
+}
+
+// ── Sample data ──────────────────────────────────────────────────────
+const SAMPLE = [
+  {
+    id:"1", title:"Crispy Smashed Potatoes",
+    description:"Golden and crispy outside, fluffy inside. The ultimate side dish.",
+    ingredients:["1.5 lbs baby potatoes","3 tbsp olive oil","4 garlic cloves, minced","2 tsp fresh rosemary","1 tsp flaky sea salt","Black pepper to taste"],
+    steps:["Boil potatoes in salted water for 15-20 minutes until fork-tender.","Drain and let steam dry for 5 minutes.","Smash each potato flat on a greased baking sheet using a glass.","Drizzle with olive oil, garlic, rosemary, salt and pepper.","Roast at 220°C for 25-30 minutes until edges are golden and crispy."],
+    servings:"4 servings", time:"50 minutes", tags:["side dish","vegetarian","baked"]
+  }
+];
+
+// ── Shared styles ────────────────────────────────────────────────────
+const S = {
+  lbl:        { fontSize:"0.7rem", fontWeight:700, color:"#5c3d2e", textTransform:"uppercase", letterSpacing:"0.07em", display:"block", marginBottom:5 },
+  inp:        { width:"100%", padding:"9px 11px", border:"1.5px solid rgba(92,61,46,0.18)", borderRadius:7, background:"#faf6f0", fontSize:"0.84rem", color:"#1a1410", outline:"none", boxSizing:"border-box" },
+  rmBtn:      { width:26, height:26, borderRadius:"50%", border:"none", background:"rgba(196,98,45,0.1)", color:"#c4622d", cursor:"pointer", fontSize:"0.82rem", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 },
+  addItemBtn: { display:"inline-flex", alignItems:"center", gap:5, marginTop:4, padding:"6px 12px", background:"transparent", border:"1.5px dashed rgba(92,61,46,0.25)", borderRadius:6, color:"#8c7b6b", fontSize:"0.78rem", cursor:"pointer" },
+  secLabel:   { fontFamily:"'Playfair Display',serif", fontSize:"1rem", color:"#5c3d2e", borderBottom:"2px solid #d4a853", display:"inline-block", paddingBottom:6, marginBottom:13 },
+};
+
+// ── App ──────────────────────────────────────────────────────────────
+function App() {
+  const [recipes,   setRecipes]   = useState(SAMPLE);
+  const [search,    setSearch]    = useState("");
+  const [activeTag, setActiveTag] = useState(null);
+  const [viewRec,   setViewRec]   = useState(null);
+  const [showAdd,   setShowAdd]   = useState(false);
+  const [step,      setStep]      = useState(1);
+  const [caption,   setCaption]   = useState("");
+  const [draft,     setDraft]     = useState(null);
+  const [tagInput,  setTagInput]  = useState("");
+  const [error,     setError]     = useState("");
+
+  // Filtering
+  const filtered = recipes.filter(r => {
+    const matchTag = !activeTag || (r.tags||[]).includes(activeTag);
+    const q = search.toLowerCase();
+    const matchQ = !q || [r.title, r.description, ...(r.tags||[]), ...(r.ingredients||[])].some(s => s?.toLowerCase().includes(q));
+    return matchTag && matchQ;
+  });
+
+  // Top tags
+  const tagFreq = {};
+  recipes.forEach(r => (r.tags||[]).forEach(t => tagFreq[t] = (tagFreq[t]||0)+1));
+  const topTags = Object.entries(tagFreq).sort((a,b)=>b[1]-a[1]).slice(0,8).map(e=>e[0]);
+
+  // Add flow
+  function handleFormat() {
+    if (!caption.trim()) return setError("Please paste some recipe text first.");
+    const { ingredients, steps, time, servings, titleSuggestions, tagSuggestions } = parseRecipeText(caption);
+    if (!ingredients.length && !steps.length)
+      return setError("Couldn't detect sections. Make sure your text includes ingredients and instructions.");
+    setError("");
+    setDraft({ title: titleSuggestions[0]||"", description:"", time, servings, tags:[], ingredients, steps, titleSuggestions, tagSuggestions });
+    setStep(2);
+  }
+
+  function handleSave() {
+    if (!draft.title.trim()) return setError("Please add a recipe title.");
+    setRecipes(prev => [{ ...draft, id: Date.now().toString(), saved_at: new Date().toISOString() }, ...prev]);
+    closeAdd();
+  }
+
+  function openAdd()  { setShowAdd(true); setStep(1); setCaption(""); setDraft(null); setError(""); setTagInput(""); }
+  function closeAdd() { setShowAdd(false); setStep(1); setCaption(""); setDraft(null); setError(""); setTagInput(""); }
+
+  function commitTagInput() {
+    const newTag = tagInput.trim().replace(/,$/, "");
+    if (newTag && !draft.tags.includes(newTag)) setDraft(d => ({...d, tags:[...d.tags, newTag]}));
+    setTagInput("");
+  }
+
+  return (
+    <div style={{ background:"#faf6f0", minHeight:"100vh" }}>
+
+      {/* ── Header ── */}
+      <div style={{ background:"#5c3d2e", padding:"40px 32px 32px", textAlign:"center", position:"relative", overflow:"hidden" }}>
+        <div style={{ position:"absolute", inset:0, backgroundImage:"repeating-linear-gradient(45deg,transparent,transparent 20px,rgba(255,255,255,0.03) 20px,rgba(255,255,255,0.03) 40px)" }}/>
+        <h1 style={{ fontFamily:"'Playfair Display',serif", fontSize:"clamp(1.8rem,4vw,2.8rem)", color:"#faf6f0", margin:0, position:"relative" }}>My Recipe Collection</h1>
+        <p style={{ color:"rgba(250,246,240,0.6)", margin:"8px 0 0", fontSize:"0.9rem", position:"relative" }}>Tested, loved, and saved</p>
+        <div style={{ display:"flex", gap:12, justifyContent:"center", marginTop:18, position:"relative" }}>
+          <span style={{ background:"rgba(255,255,255,0.12)", color:"#faf6f0", padding:"7px 16px", borderRadius:20, fontSize:"0.78rem" }}>
+            {recipes.length} recipe{recipes.length !== 1 ? "s" : ""}
+          </span>
+          <button onClick={openAdd} style={{ background:"#c4622d", color:"white", border:"none", padding:"7px 18px", borderRadius:20, fontSize:"0.82rem", fontWeight:600, cursor:"pointer" }}>
+            ＋ Add Recipe
+          </button>
+        </div>
+      </div>
+
+      {/* ── Search + Tags ── */}
+      <div style={{ background:"#f2ebe0", padding:"16px 32px", borderBottom:"1px solid rgba(92,61,46,0.12)", position:"sticky", top:0, zIndex:100, display:"flex", flexWrap:"wrap", gap:10, alignItems:"center" }}>
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search recipes or ingredients…"
+          style={{ flex:1, minWidth:180, padding:"9px 14px", border:"1.5px solid rgba(92,61,46,0.2)", borderRadius:8, background:"#fffdf9", fontSize:"0.87rem", outline:"none" }}/>
+        <div style={{ display:"flex", flexWrap:"wrap", gap:7 }}>
+          {topTags.map(tag => (
+            <button key={tag} onClick={() => setActiveTag(activeTag===tag ? null : tag)}
+              style={{ padding:"5px 13px", borderRadius:20, border:"1.5px solid", borderColor:activeTag===tag?"#c4622d":"rgba(92,61,46,0.2)", background:activeTag===tag?"#c4622d":"transparent", color:activeTag===tag?"white":"#5c3d2e", fontSize:"0.75rem", fontWeight:500, cursor:"pointer" }}>
+              {tag}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Recipe Grid ── */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(290px,1fr))", gap:22, padding:"28px 32px", maxWidth:1400, margin:"0 auto" }}>
+        {!filtered.length ? (
+          <div style={{ gridColumn:"1/-1", textAlign:"center", padding:"80px 20px", color:"#8c7b6b" }}>
+            <div style={{ fontSize:"3rem", marginBottom:14 }}>{recipes.length ? "🔍" : "🍴"}</div>
+            <h3 style={{ fontFamily:"'Playfair Display',serif", color:"#5c3d2e", marginBottom:8 }}>{recipes.length ? "No recipes found" : "No recipes yet"}</h3>
+            <p style={{ fontSize:"0.88rem" }}>{recipes.length ? "Try a different search." : "Hit \"+ Add Recipe\" to get started."}</p>
+          </div>
+        ) : filtered.map(r => (
+          <div key={r.id} onClick={() => setViewRec(r)}
+            style={{ background:"#fffdf9", borderRadius:14, overflow:"hidden", border:"1px solid rgba(92,61,46,0.1)", cursor:"pointer", transition:"transform 0.2s,box-shadow 0.2s" }}
+            onMouseEnter={e => { e.currentTarget.style.transform="translateY(-4px)"; e.currentTarget.style.boxShadow="0 14px 40px rgba(92,61,46,0.13)"; }}
+            onMouseLeave={e => { e.currentTarget.style.transform=""; e.currentTarget.style.boxShadow=""; }}>
+            <div style={{ background:"linear-gradient(135deg,#5c3d2e,#7a4f38)", padding:"22px 20px 16px" }}>
+              <div style={{ fontSize:"2rem", marginBottom:7 }}>{getEmoji(r)}</div>
+              <h3 style={{ fontFamily:"'Playfair Display',serif", color:"#faf6f0", fontSize:"1.1rem", lineHeight:1.3, margin:0 }}>{r.title}</h3>
+              <div style={{ display:"flex", gap:12, marginTop:9 }}>
+                {r.time     && <span style={{ fontSize:"0.7rem", color:"rgba(250,246,240,0.7)" }}>⏱ {r.time}</span>}
+                {r.servings && <span style={{ fontSize:"0.7rem", color:"rgba(250,246,240,0.7)" }}>👤 {r.servings}</span>}
+              </div>
+            </div>
+            <div style={{ padding:"16px 20px 18px" }}>
+              <p style={{ fontSize:"0.83rem", color:"#8c7b6b", lineHeight:1.6, margin:0 }}>{(r.description||"").slice(0,100)}{(r.description||"").length>100?"…":""}</p>
+              <div style={{ display:"flex", flexWrap:"wrap", gap:5, marginTop:11 }}>
+                {(r.tags||[]).slice(0,3).map(t => <span key={t} style={{ padding:"2px 9px", background:"#f2ebe0", borderRadius:20, fontSize:"0.68rem", color:"#5c3d2e", fontWeight:600 }}>{t}</span>)}
+              </div>
+            </div>
+            <div style={{ padding:"10px 20px", borderTop:"1px solid rgba(92,61,46,0.08)", display:"flex", justifyContent:"space-between" }}>
+              <span style={{ fontSize:"0.72rem", color:"#8c7b6b" }}>{(r.ingredients||[]).length} ingredients</span>
+              <span style={{ fontSize:"0.72rem", color:"#c4622d", fontWeight:600 }}>View recipe →</span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* ── View Recipe Modal ── */}
+      {viewRec && (
+        <div onClick={e => { if(e.target===e.currentTarget) setViewRec(null); }}
+          style={{ position:"fixed", inset:0, background:"rgba(26,20,16,0.72)", backdropFilter:"blur(4px)", zIndex:200, overflowY:"auto", padding:"40px 20px", display:"flex", alignItems:"flex-start", justifyContent:"center" }}>
+          <div style={{ background:"#fffdf9", borderRadius:18, width:"100%", maxWidth:660, overflow:"hidden", position:"relative" }}>
+            <button onClick={() => setViewRec(null)} style={{ position:"absolute", top:14, right:14, width:30, height:30, borderRadius:"50%", background:"rgba(250,246,240,0.18)", border:"none", color:"#faf6f0", cursor:"pointer", fontSize:"1rem" }}>✕</button>
+            <div style={{ background:"linear-gradient(135deg,#5c3d2e,#7a4f38)", padding:"30px 32px 24px" }}>
+              <div style={{ fontSize:"2.6rem", marginBottom:9 }}>{getEmoji(viewRec)}</div>
+              <h2 style={{ fontFamily:"'Playfair Display',serif", color:"#faf6f0", fontSize:"1.65rem", margin:0, lineHeight:1.25 }}>{viewRec.title}</h2>
+              <div style={{ display:"flex", gap:16, marginTop:11 }}>
+                {viewRec.time     && <span style={{ fontSize:"0.82rem", color:"rgba(250,246,240,0.8)" }}>⏱ {viewRec.time}</span>}
+                {viewRec.servings && <span style={{ fontSize:"0.82rem", color:"rgba(250,246,240,0.8)" }}>👤 {viewRec.servings}</span>}
+              </div>
+            </div>
+            <div style={{ padding:"26px 32px 32px" }}>
+              {viewRec.description && <p style={{ fontSize:"0.9rem", color:"#8c7b6b", lineHeight:1.7, fontStyle:"italic", marginBottom:24 }}>{viewRec.description}</p>}
+              <div style={{ marginBottom:26 }}>
+                <div style={S.secLabel}>Ingredients</div>
+                <ul style={{ listStyle:"none", display:"grid", gridTemplateColumns:"1fr 1fr", gap:"6px 16px", margin:0, padding:0 }}>
+                  {(viewRec.ingredients||[]).map((ing,i) => (
+                    <li key={i} style={{ display:"flex", gap:7, fontSize:"0.85rem", lineHeight:1.5, alignItems:"baseline" }}>
+                      <span style={{ color:"#c4622d", flexShrink:0 }}>•</span>{ing}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div style={{ marginBottom:20 }}>
+                <div style={S.secLabel}>Instructions</div>
+                <ol style={{ listStyle:"none", display:"flex", flexDirection:"column", gap:11, margin:0, padding:0 }}>
+                  {(viewRec.steps||[]).map((s,i) => (
+                    <li key={i} style={{ display:"flex", gap:11, fontSize:"0.87rem", lineHeight:1.65, alignItems:"flex-start" }}>
+                      <span style={{ background:"#c4622d", color:"white", width:24, height:24, borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center", fontSize:"0.7rem", fontWeight:700, flexShrink:0, marginTop:2 }}>{i+1}</span>
+                      <span>{s}</span>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+              {(viewRec.tags||[]).length > 0 && (
+                <div style={{ display:"flex", flexWrap:"wrap", gap:7, marginTop:18 }}>
+                  {viewRec.tags.map(t => <span key={t} style={{ padding:"4px 12px", background:"#f2ebe0", borderRadius:20, fontSize:"0.76rem", color:"#5c3d2e", fontWeight:600 }}>{t}</span>)}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Add Recipe Modal ── */}
+      {showAdd && (
+        <div onClick={e => { if(e.target===e.currentTarget) closeAdd(); }}
+          style={{ position:"fixed", inset:0, background:"rgba(26,20,16,0.75)", backdropFilter:"blur(4px)", zIndex:300, overflowY:"auto", padding:"40px 20px", display:"flex", alignItems:"flex-start", justifyContent:"center" }}>
+          <div style={{ background:"#fffdf9", borderRadius:18, width:"100%", maxWidth:600, overflow:"hidden" }}>
+
+            {/* Modal header */}
+            <div style={{ background:"linear-gradient(135deg,#5c3d2e,#7a4f38)", padding:"22px 26px", display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
+              <div>
+                <h3 style={{ fontFamily:"'Playfair Display',serif", color:"#faf6f0", margin:0, fontSize:"1.25rem" }}>{step===1 ? "Add New Recipe" : "Review & Save"}</h3>
+                <div style={{ fontSize:"0.72rem", color:"rgba(250,246,240,0.6)", marginTop:3 }}>{step===1 ? "Step 1 of 2 — Paste caption" : "Step 2 of 2 — Edit anything, then save"}</div>
+              </div>
+              <button onClick={closeAdd} style={{ width:30, height:30, borderRadius:"50%", background:"rgba(250,246,240,0.15)", border:"none", color:"#faf6f0", cursor:"pointer", fontSize:"1rem" }}>✕</button>
+            </div>
+
+            {/* Step 1 — Paste */}
+            {step===1 && (
+              <div style={{ padding:"22px 26px 26px" }}>
+                <label style={S.lbl}>Paste the Instagram caption</label>
+                <p style={{ fontSize:"0.75rem", color:"#8c7b6b", marginBottom:10 }}>Any format works — with or without section headers.</p>
+                <textarea value={caption} onChange={e => setCaption(e.target.value)}
+                  placeholder={"INGREDIENTS\n• 200g oat flour\n• 2 eggs\n...\n\nINSTRUCTIONS\n1. Preheat oven..."}
+                  style={{ width:"100%", minHeight:200, padding:"11px 13px", border:"1.5px solid rgba(92,61,46,0.2)", borderRadius:8, background:"#faf6f0", fontFamily:"monospace", fontSize:"0.85rem", resize:"vertical", outline:"none", lineHeight:1.6, boxSizing:"border-box" }}/>
+                {error && <div style={{ marginTop:12, padding:"10px 13px", background:"#fdecea", color:"#8b1a1a", borderRadius:7, fontSize:"0.82rem" }}>{error}</div>}
+                <button onClick={handleFormat}
+                  style={{ width:"100%", marginTop:16, padding:13, background:"#c4622d", color:"white", border:"none", borderRadius:8, fontSize:"0.9rem", fontWeight:600, cursor:"pointer" }}>
+                  Parse Recipe →
+                </button>
+              </div>
+            )}
+
+            {/* Step 2 — Review */}
+            {step===2 && draft && (
+              <div style={{ padding:"22px 26px 26px", maxHeight:"74vh", overflowY:"auto" }}>
+
+                {/* Title chips + input */}
+                <div style={{ background:"#fff8f0", border:"1.5px solid #c4622d", borderRadius:8, padding:"12px 14px", marginBottom:16 }}>
+                  <label style={{...S.lbl, color:"#c4622d"}}>Recipe Title *</label>
+                  {(draft.titleSuggestions||[]).length > 0 && (
+                    <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom:10 }}>
+                      {draft.titleSuggestions.map(t => (
+                        <button key={t} onClick={() => setDraft({...draft, title:t})}
+                          style={{ padding:"5px 12px", borderRadius:20, border:"1.5px solid", cursor:"pointer", fontSize:"0.78rem", fontWeight:500,
+                            borderColor: draft.title===t ? "#c4622d":"rgba(92,61,46,0.25)",
+                            background:  draft.title===t ? "#c4622d":"white",
+                            color:       draft.title===t ? "white":"#5c3d2e" }}>
+                          {t}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <input value={draft.title} onChange={e => setDraft({...draft,title:e.target.value})}
+                    placeholder="or type your own title…" style={{...S.inp, background:"white"}}/>
+                </div>
+
+                {/* Time + Servings + Tags */}
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
+                  <div>
+                    <label style={S.lbl}>Time</label>
+                    <input value={draft.time} onChange={e => setDraft({...draft,time:e.target.value})} style={S.inp} placeholder="e.g. 35 min"/>
+                  </div>
+                  <div>
+                    <label style={S.lbl}>Servings</label>
+                    <input value={draft.servings} onChange={e => setDraft({...draft,servings:e.target.value})} style={S.inp} placeholder="e.g. 12 muffins"/>
+                  </div>
+                  <div style={{ gridColumn:"1/-1" }}>
+                    <label style={S.lbl}>Tags</label>
+                    {/* Suggestion chips — hidden while typing */}
+                    {(draft.tagSuggestions||[]).length > 0 && !tagInput && (
+                      <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom:8 }}>
+                        {draft.tagSuggestions.map(t => {
+                          const active = draft.tags.includes(t);
+                          return (
+                            <button key={t} onClick={() => setDraft({...draft, tags: active ? draft.tags.filter(x=>x!==t) : [...draft.tags, t]})}
+                              style={{ padding:"5px 12px", borderRadius:20, border:"1.5px solid", cursor:"pointer", fontSize:"0.75rem", fontWeight:500,
+                                borderColor: active ? "#c4622d":"rgba(92,61,46,0.25)",
+                                background:  active ? "#c4622d":"white",
+                                color:       active ? "white":"#5c3d2e" }}>
+                              {active ? "✓ " : ""}{t}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {/* Selected pills visible while typing */}
+                    {tagInput && draft.tags.length > 0 && (
+                      <div style={{ display:"flex", flexWrap:"wrap", gap:5, marginBottom:7 }}>
+                        {draft.tags.map(t => (
+                          <span key={t} style={{ display:"inline-flex", alignItems:"center", gap:4, padding:"4px 10px", background:"#c4622d", color:"white", borderRadius:20, fontSize:"0.74rem", fontWeight:500 }}>
+                            {t}
+                            <button onClick={() => setDraft({...draft, tags: draft.tags.filter(x=>x!==t)})}
+                              style={{ background:"none", border:"none", color:"white", cursor:"pointer", fontSize:"0.75rem", padding:0, lineHeight:1 }}>✕</button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <input value={tagInput}
+                      onChange={e => setTagInput(e.target.value)}
+                      onKeyDown={e => {
+                        if ((e.key==="," || e.key==="Enter") && tagInput.trim()) { e.preventDefault(); commitTagInput(); }
+                        else if (e.key==="Backspace" && !tagInput && draft.tags.length) setDraft({...draft, tags: draft.tags.slice(0,-1)});
+                      }}
+                      onBlur={commitTagInput}
+                      style={S.inp} placeholder={draft.tags.length ? "Add more… (comma or Enter)" : "Type a tag and press comma or Enter…"}/>
+                  </div>
+                </div>
+
+                {/* Ingredients */}
+                <div style={{ marginTop:16 }}>
+                  <div style={S.secLabel}>Ingredients</div>
+                  <div style={{ display:"flex", flexDirection:"column", gap:6, marginTop:6 }}>
+                    {draft.ingredients.map((ing,i) => (
+                      <div key={i} style={{ display:"flex", gap:7, alignItems:"center" }}>
+                        <input value={ing} onChange={e => { const a=[...draft.ingredients]; a[i]=e.target.value; setDraft({...draft,ingredients:a}); }} style={{...S.inp,flex:1}}/>
+                        <button onClick={() => setDraft({...draft,ingredients:draft.ingredients.filter((_,j)=>j!==i)})} style={S.rmBtn}>✕</button>
+                      </div>
+                    ))}
+                    <button onClick={() => setDraft({...draft,ingredients:[...draft.ingredients,""]})} style={S.addItemBtn}>＋ Add ingredient</button>
+                  </div>
+                </div>
+
+                {/* Instructions */}
+                <div style={{ marginTop:20 }}>
+                  <div style={S.secLabel}>Instructions</div>
+                  <div style={{ display:"flex", flexDirection:"column", gap:6, marginTop:6 }}>
+                    {draft.steps.map((s,i) => (
+                      <div key={i} style={{ display:"flex", gap:7, alignItems:"center" }}>
+                        <span style={{ background:"#c4622d", color:"white", width:22, height:22, borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center", fontSize:"0.68rem", fontWeight:700, flexShrink:0 }}>{i+1}</span>
+                        <input value={s} onChange={e => { const a=[...draft.steps]; a[i]=e.target.value; setDraft({...draft,steps:a}); }} style={{...S.inp,flex:1}}/>
+                        <button onClick={() => setDraft({...draft,steps:draft.steps.filter((_,j)=>j!==i)})} style={S.rmBtn}>✕</button>
+                      </div>
+                    ))}
+                    <button onClick={() => setDraft({...draft,steps:[...draft.steps,""]})} style={S.addItemBtn}>＋ Add step</button>
+                  </div>
+                </div>
+
+                {error && <div style={{ marginTop:12, padding:"10px 13px", background:"#fdecea", color:"#8b1a1a", borderRadius:7, fontSize:"0.82rem" }}>{error}</div>}
+                <div style={{ display:"flex", gap:10, marginTop:22 }}>
+                  <button onClick={() => { setStep(1); setError(""); }} style={{ padding:"12px 18px", background:"transparent", color:"#5c3d2e", border:"1.5px solid rgba(92,61,46,0.25)", borderRadius:8, fontSize:"0.88rem", cursor:"pointer" }}>← Back</button>
+                  <button onClick={handleSave} style={{ flex:1, padding:12, background:"#c4622d", color:"white", border:"none", borderRadius:8, fontSize:"0.9rem", fontWeight:600, cursor:"pointer" }}>💾 Save to Collection</button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+
+</body>
+</html>
