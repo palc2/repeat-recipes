@@ -26,25 +26,10 @@
 <script type="text/babel">
 const { useState, useEffect } = React;
 
-// ════════════════════════════════════════════════════════════════════
-//  GOOGLE DRIVE SYNC
-//  ➜ Replace the placeholder below with YOUR OAuth 2.0 Client ID.
-//
-//  Quick setup (free, ~5 minutes):
-//  1. https://console.cloud.google.com/ → new project
-//  2. APIs & Services → Enable APIs → "Google Drive API"
-//  3. Credentials → + Create Credentials → OAuth client ID
-//  4. Application type: Web application
-//  5. Authorised JavaScript origins:
-//       • https://YOUR-USER.github.io   (your GitHub Pages URL)
-//       • http://localhost              (for local testing)
-//  6. Copy the Client ID and paste it below ↓
-// ════════════════════════════════════════════════════════════════════
 const GDRIVE_CLIENT_ID = "739039916071-ematentftfchllf6asdtsq6hruvvk0ip.apps.googleusercontent.com";
 const GDRIVE_SCOPE     = "https://www.googleapis.com/auth/drive.appdata";
 const GDRIVE_FILENAME  = "repeat-recipes.json";
 
-// Module-level token (survives re-renders, cleared on expiry)
 let _token = null;
 
 function getToken() {
@@ -61,7 +46,7 @@ function getToken() {
         resolve(_token);
       },
     });
-    client.requestAccessToken({ prompt: "" }); // silent if already consented
+    client.requestAccessToken({ prompt: "" });
   });
 }
 
@@ -89,7 +74,6 @@ async function driveSave(recipes) {
   const token  = await getToken();
   const fileId = await findFileId(token);
   const blob   = new Blob([JSON.stringify(recipes, null, 2)], { type: "application/json" });
-
   if (fileId) {
     await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`, {
       method: "PATCH",
@@ -109,7 +93,6 @@ async function driveSave(recipes) {
   }
 }
 
-// Local JSON download (fallback / manual backup)
 function exportRecipes(recipes) {
   const blob = new Blob([JSON.stringify(recipes, null, 2)], { type: "application/json" });
   const url  = URL.createObjectURL(blob);
@@ -118,9 +101,6 @@ function exportRecipes(recipes) {
   URL.revokeObjectURL(url);
 }
 
-// ════════════════════════════════════════════════════════════════════
-//  HELPERS — emoji, tags, parser (unchanged from original)
-// ════════════════════════════════════════════════════════════════════
 const EMOJIS = {
   chicken:"🍗", salmon:"🐟", fish:"🐟", seafood:"🦐", shrimp:"🦐", beef:"🥩", pork:"🥩",
   pasta:"🍝", rice:"🍚", soup:"🍲", salad:"🥗", cake:"🎂", chocolate:"🍫",
@@ -237,15 +217,13 @@ const S = {
   secLabel:   { fontFamily:"'Playfair Display',serif", fontSize:"1rem", color:"#c45d1a", borderBottom:"2px solid #fdd87a", display:"inline-block", paddingBottom:6, marginBottom:13 },
 };
 
-// ════════════════════════════════════════════════════════════════════
-//  APP
-// ════════════════════════════════════════════════════════════════════
 function App() {
   const [recipes,    setRecipes]    = useState(SAMPLE);
   const [search,     setSearch]     = useState("");
   const [activeTag,  setActiveTag]  = useState(null);
   const [activeType, setActiveType] = useState(null);
   const [viewRec,    setViewRec]    = useState(null);
+  const [editRec,    setEditRec]    = useState(null);
   const [showAdd,    setShowAdd]    = useState(false);
   const [step,       setStep]       = useState(1);
   const [caption,    setCaption]    = useState("");
@@ -253,14 +231,12 @@ function App() {
   const [tagInput,   setTagInput]   = useState("");
   const [error,      setError]      = useState("");
 
-  // Drive sync state: "idle" | "loading" | "saving" | "synced" | "error" | "disabled"
   const [driveStatus, setDriveStatus] = useState("idle");
   const [driveMsg,    setDriveMsg]    = useState("");
   const [gisReady,    setGisReady]    = useState(false);
 
   const driveEnabled = GDRIVE_CLIENT_ID !== "YOUR_CLIENT_ID_HERE.apps.googleusercontent.com";
 
-  // Poll for GIS script to finish loading
   useEffect(() => {
     if (!driveEnabled) { setDriveStatus("disabled"); return; }
     const check = setInterval(() => {
@@ -269,7 +245,6 @@ function App() {
     return () => clearInterval(check);
   }, [driveEnabled]);
 
-  // Auto-load once GIS is ready
   useEffect(() => {
     if (gisReady) handleDriveLoad();
   }, [gisReady]);
@@ -313,7 +288,6 @@ function App() {
     }
   }
 
-  // Filtering
   const filtered = recipes.filter(r => {
     const matchTag  = !activeTag  || (r.tags||[]).includes(activeTag);
     const matchType = !activeType || r.cookType === activeType;
@@ -325,7 +299,6 @@ function App() {
   recipes.forEach(r => (r.tags||[]).forEach(t => tagFreq[t] = (tagFreq[t]||0)+1));
   const topTags = Object.entries(tagFreq).sort((a,b)=>b[1]-a[1]).slice(0,8).map(e=>e[0]);
 
-  // Add flow
   function handleFormat() {
     if (!caption.trim()) return setError("Please paste some recipe text first.");
     const parsed = parseRecipeText(caption);
@@ -339,6 +312,11 @@ function App() {
     saveWithDriveSync([{ ...draft, id: Date.now().toString(), saved_at: new Date().toISOString() }, ...recipes]);
     closeAdd();
   }
+  function handleUpdate() {
+    if (!draft.title.trim()) return setError("Please add a recipe title.");
+    saveWithDriveSync(recipes.map(r => r.id === editRec ? { ...draft, id: editRec } : r));
+    setEditRec(null); setDraft(null); setError("");
+  }
   function openAdd()  { setShowAdd(true); setStep(1); setCaption(""); setDraft(null); setError(""); setTagInput(""); }
   function closeAdd() { setShowAdd(false); setStep(1); setCaption(""); setDraft(null); setError(""); setTagInput(""); }
   function commitTagInput() {
@@ -350,6 +328,37 @@ function App() {
   const statusBg   = { idle:"rgba(255,255,255,0.12)", loading:"rgba(253,216,122,0.5)", saving:"rgba(253,216,122,0.5)", synced:"rgba(76,175,143,0.6)", error:"rgba(232,85,58,0.6)", disabled:"rgba(255,255,255,0.06)" };
   const statusText = { idle:"rgba(255,245,236,0.55)", loading:"#fff5ec", saving:"#fff5ec", synced:"#fff5ec", error:"#fff5ec", disabled:"rgba(255,245,236,0.25)" };
   const isBusy     = driveStatus === "loading" || driveStatus === "saving";
+
+  // Shared tag editor used in both Add and Edit modals
+  function TagEditor({ draft, setDraft, tagInput, setTagInput, commitTagInput }) {
+    return (
+      <div style={{ gridColumn:"1/-1" }}>
+        <label style={S.lbl}>Tags</label>
+        {(draft.tagSuggestions||[]).length > 0 && !tagInput && (
+          <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom:8 }}>
+            {draft.tagSuggestions.map(t => {
+              const active = draft.tags.includes(t);
+              return <button key={t} onClick={() => setDraft({...draft, tags: active?draft.tags.filter(x=>x!==t):[...draft.tags,t]})}
+                style={{ padding:"5px 12px", borderRadius:20, border:"1.5px solid", cursor:"pointer", fontSize:"0.75rem", fontWeight:500, borderColor:active?"#c45d1a":"rgba(196,93,26,0.25)", background:active?"#c45d1a":"white", color:active?"white":"#c45d1a" }}>
+                {active?"✓ ":""}{t}</button>;
+            })}
+          </div>
+        )}
+        {draft.tags.length > 0 && (
+          <div style={{ display:"flex", flexWrap:"wrap", gap:5, marginBottom:7 }}>
+            {draft.tags.map(t => (
+              <span key={t} style={{ display:"inline-flex", alignItems:"center", gap:4, padding:"4px 10px", background:"#c45d1a", color:"white", borderRadius:20, fontSize:"0.74rem", fontWeight:500 }}>
+                {t}<button onClick={() => setDraft({...draft, tags:draft.tags.filter(x=>x!==t)})} style={{ background:"none", border:"none", color:"white", cursor:"pointer", fontSize:"0.75rem", padding:0, lineHeight:1 }}>✕</button>
+              </span>
+            ))}
+          </div>
+        )}
+        <input value={tagInput} onChange={e => setTagInput(e.target.value)}
+          onKeyDown={e => { if((e.key===","||e.key==="Enter")&&tagInput.trim()){e.preventDefault();commitTagInput();} else if(e.key==="Backspace"&&!tagInput&&draft.tags.length) setDraft({...draft,tags:draft.tags.slice(0,-1)}); }}
+          onBlur={commitTagInput} style={S.inp} placeholder={draft.tags.length?"Add more… (comma or Enter)":"Type a tag and press comma or Enter…"}/>
+      </div>
+    );
+  }
 
   return (
     <div style={{ background:"#faf7f2", minHeight:"100vh" }}>
@@ -373,8 +382,6 @@ function App() {
               ))}
             </div>
             <button onClick={openAdd} style={{ padding:"6px 14px", background:"#fff5ec", color:"#7a3209", border:"none", borderRadius:6, fontSize:"0.78rem", fontWeight:600, cursor:"pointer" }}>＋ Add</button>
-
-            {/* Drive sync button */}
             <button onClick={driveEnabled ? handleDriveLoad : undefined}
               title={driveEnabled ? "Click to re-sync from Google Drive" : "Set GDRIVE_CLIENT_ID in the HTML to enable Drive sync"}
               style={{ padding:"6px 12px", background:statusBg[driveStatus], color:statusText[driveStatus],
@@ -385,15 +392,12 @@ function App() {
               {!isBusy && driveStatus==="error"  && "⚠ "}
               ☁ Drive
             </button>
-
             <button onClick={() => exportRecipes(recipes)}
               style={{ padding:"6px 12px", background:"rgba(255,255,255,0.1)", color:"rgba(255,245,236,0.75)", border:"1px solid rgba(255,255,255,0.18)", borderRadius:6, fontSize:"0.78rem", cursor:"pointer" }}>
               ↓ Export
             </button>
           </div>
         </div>
-
-        {/* Status banner — only rendered when there's a message */}
         {driveMsg ? (
           <div className="drive-banner" style={{ padding:"6px 0 10px", fontSize:"0.74rem", display:"flex", alignItems:"center", gap:6,
             color: driveStatus==="error" ? "#ffb3a0" : "rgba(255,245,236,0.65)" }}>
@@ -446,7 +450,7 @@ function App() {
             <div style={{ padding:"16px 20px 18px" }}>
               <p style={{ fontSize:"0.83rem", color:"#a08060", lineHeight:1.6, margin:0 }}>{(r.description||"").slice(0,100)}{(r.description||"").length>100?"…":""}</p>
               <div style={{ display:"flex", flexWrap:"wrap", gap:5, marginTop:11 }}>
-                {(r.tags||[]).slice(0,6).map(t => <span key={t} style={{ padding:"2px 9px", background:"#f0e8d8", borderRadius:20, fontSize:"0.68rem", color:"#c45d1a", fontWeight:600 }}>{t}</span>)}
+                {(r.tags||[]).slice(0,5).map(t => <span key={t} style={{ padding:"2px 9px", background:"#f0e8d8", borderRadius:20, fontSize:"0.68rem", color:"#c45d1a", fontWeight:600 }}>{t}</span>)}
               </div>
             </div>
             <div style={{ padding:"10px 20px", borderTop:"1px solid rgba(196,93,26,0.08)", display:"flex", justifyContent:"space-between" }}>
@@ -463,6 +467,10 @@ function App() {
           style={{ position:"fixed", inset:0, background:"rgba(26,20,16,0.72)", backdropFilter:"blur(4px)", zIndex:200, overflowY:"auto", padding:"40px 20px", display:"flex", alignItems:"flex-start", justifyContent:"center" }}>
           <div style={{ background:"#fff", borderRadius:18, width:"100%", maxWidth:660, overflow:"hidden", position:"relative" }}>
             <button onClick={() => setViewRec(null)} style={{ position:"absolute", top:14, right:14, width:30, height:30, borderRadius:"50%", background:"rgba(255,245,236,0.18)", border:"none", color:"#faf7f2", cursor:"pointer", fontSize:"1rem" }}>✕</button>
+            <button onClick={() => { setDraft({...viewRec, titleSuggestions:[], tagSuggestions:[]}); setEditRec(viewRec.id); setViewRec(null); }}
+              style={{ position:"absolute", top:14, right:52, padding:"5px 12px", background:"rgba(255,245,236,0.18)", border:"1px solid rgba(255,245,236,0.4)", borderRadius:6, color:"#faf7f2", cursor:"pointer", fontSize:"0.75rem", fontWeight:600 }}>
+              ✏️ Edit
+            </button>
             <div style={{ background:"linear-gradient(135deg,#c45d1a,#a84d14)", padding:"30px 32px 24px" }}>
               <div style={{ fontSize:"2.6rem", marginBottom:9 }}>{getEmoji(viewRec)}</div>
               <h2 style={{ fontFamily:"'Playfair Display',serif", color:"#faf7f2", fontSize:"1.65rem", margin:0, lineHeight:1.25 }}>{viewRec.title}</h2>
@@ -562,31 +570,7 @@ function App() {
                       ))}
                     </div>
                   </div>
-                  <div style={{ gridColumn:"1/-1" }}>
-                    <label style={S.lbl}>Tags</label>
-                    {(draft.tagSuggestions||[]).length > 0 && !tagInput && (
-                      <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom:8 }}>
-                        {draft.tagSuggestions.map(t => {
-                          const active = draft.tags.includes(t);
-                          return <button key={t} onClick={() => setDraft({...draft, tags: active?draft.tags.filter(x=>x!==t):[...draft.tags,t]})}
-                            style={{ padding:"5px 12px", borderRadius:20, border:"1.5px solid", cursor:"pointer", fontSize:"0.75rem", fontWeight:500, borderColor:active?"#c45d1a":"rgba(196,93,26,0.25)", background:active?"#c45d1a":"white", color:active?"white":"#c45d1a" }}>
-                            {active?"✓ ":""}{t}</button>;
-                        })}
-                      </div>
-                    )}
-                    {draft.tags.length > 0 && (
-                      <div style={{ display:"flex", flexWrap:"wrap", gap:5, marginBottom:7 }}>
-                        {draft.tags.map(t => (
-                          <span key={t} style={{ display:"inline-flex", alignItems:"center", gap:4, padding:"4px 10px", background:"#c45d1a", color:"white", borderRadius:20, fontSize:"0.74rem", fontWeight:500 }}>
-                            {t}<button onClick={() => setDraft({...draft, tags:draft.tags.filter(x=>x!==t)})} style={{ background:"none", border:"none", color:"white", cursor:"pointer", fontSize:"0.75rem", padding:0, lineHeight:1 }}>✕</button>
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                    <input value={tagInput} onChange={e => setTagInput(e.target.value)}
-                      onKeyDown={e => { if((e.key===","||e.key==="Enter")&&tagInput.trim()){e.preventDefault();commitTagInput();} else if(e.key==="Backspace"&&!tagInput&&draft.tags.length) setDraft({...draft,tags:draft.tags.slice(0,-1)}); }}
-                      onBlur={commitTagInput} style={S.inp} placeholder={draft.tags.length?"Add more… (comma or Enter)":"Type a tag and press comma or Enter…"}/>
-                  </div>
+                  <TagEditor draft={draft} setDraft={setDraft} tagInput={tagInput} setTagInput={setTagInput} commitTagInput={commitTagInput} />
                 </div>
 
                 <div style={{ marginTop:16 }}>
@@ -628,6 +612,82 @@ function App() {
           </div>
         </div>
       )}
+
+      {/* ── Edit Recipe Modal ── */}
+      {editRec && draft && (
+        <div onClick={e => { if(e.target===e.currentTarget){ setEditRec(null); setDraft(null); }}}
+          style={{ position:"fixed", inset:0, background:"rgba(26,20,16,0.75)", backdropFilter:"blur(4px)", zIndex:300, overflowY:"auto", padding:"40px 20px", display:"flex", alignItems:"flex-start", justifyContent:"center" }}>
+          <div style={{ background:"#fff", borderRadius:18, width:"100%", maxWidth:600, overflow:"hidden" }}>
+            <div style={{ background:"linear-gradient(135deg,#c45d1a,#a84d14)", padding:"22px 26px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+              <h3 style={{ fontFamily:"'Playfair Display',serif", color:"#faf7f2", margin:0, fontSize:"1.25rem" }}>Edit Recipe</h3>
+              <button onClick={() => { setEditRec(null); setDraft(null); }} style={{ width:30, height:30, borderRadius:"50%", background:"rgba(255,245,236,0.15)", border:"none", color:"#faf7f2", cursor:"pointer", fontSize:"1rem" }}>✕</button>
+            </div>
+            <div style={{ padding:"22px 26px 26px", maxHeight:"74vh", overflowY:"auto" }}>
+              <div style={{ background:"#fff8f0", border:"1.5px solid #c45d1a", borderRadius:8, padding:"12px 14px", marginBottom:16 }}>
+                <label style={S.lbl}>Recipe Title *</label>
+                <input value={draft.title} onChange={e => setDraft({...draft,title:e.target.value})} style={{...S.inp, background:"white"}}/>
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
+                <div><label style={S.lbl}>Time</label><input value={draft.time||""} onChange={e => setDraft({...draft,time:e.target.value})} style={S.inp} placeholder="e.g. 35 min"/></div>
+                <div><label style={S.lbl}>Servings</label><input value={draft.servings||""} onChange={e => setDraft({...draft,servings:e.target.value})} style={S.inp} placeholder="e.g. 12 muffins"/></div>
+                <div style={{ gridColumn:"1/-1" }}>
+                  <label style={S.lbl}>Description</label>
+                  <textarea value={draft.description||""} onChange={e => setDraft({...draft,description:e.target.value})} style={{...S.inp, minHeight:60, resize:"vertical"}}/>
+                </div>
+                <div style={{ gridColumn:"1/-1" }}>
+                  <label style={S.lbl}>Type</label>
+                  <div style={{ display:"flex", gap:8 }}>
+                    {[["bakes","🧁 Bakes","#fdd87a"],["cooks","🍳 Cooks","#e8855a"]].map(([val,label,color]) => (
+                      <button key={val} onClick={() => setDraft({...draft, cookType: draft.cookType===val?null:val})}
+                        style={{ flex:1, padding:"8px 12px", borderRadius:8, border:"1.5px solid", cursor:"pointer", fontSize:"0.83rem", fontWeight:600, transition:"all 0.15s",
+                          borderColor: draft.cookType===val?color:"rgba(196,93,26,0.2)", background: draft.cookType===val?color:"white", color: draft.cookType===val?(val==="bakes"?"#1a1410":"white"):"#c45d1a" }}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <TagEditor draft={draft} setDraft={setDraft} tagInput={tagInput} setTagInput={setTagInput} commitTagInput={commitTagInput} />
+              </div>
+
+              <div style={{ marginTop:16 }}>
+                <div style={S.secLabel}>Ingredients</div>
+                <div style={{ display:"flex", flexDirection:"column", gap:6, marginTop:6 }}>
+                  {draft.ingredients.map((ing,i) => (
+                    <div key={i} style={{ display:"flex", gap:7, alignItems:"center" }}>
+                      <input value={ing} onChange={e => { const a=[...draft.ingredients]; a[i]=e.target.value; setDraft({...draft,ingredients:a}); }} style={{...S.inp,flex:1}}/>
+                      <button onClick={() => setDraft({...draft,ingredients:draft.ingredients.filter((_,j)=>j!==i)})} style={S.rmBtn}>✕</button>
+                    </div>
+                  ))}
+                  <button onClick={() => setDraft({...draft,ingredients:[...draft.ingredients,""]})} style={S.addItemBtn}>＋ Add ingredient</button>
+                </div>
+              </div>
+
+              <div style={{ marginTop:20 }}>
+                <div style={S.secLabel}>Instructions</div>
+                <div style={{ display:"flex", flexDirection:"column", gap:6, marginTop:6 }}>
+                  {draft.steps.map((s,i) => (
+                    <div key={i} style={{ display:"flex", gap:7, alignItems:"center" }}>
+                      <span style={{ background:"#c45d1a", color:"white", width:22, height:22, borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center", fontSize:"0.68rem", fontWeight:700, flexShrink:0 }}>{i+1}</span>
+                      <input value={s} onChange={e => { const a=[...draft.steps]; a[i]=e.target.value; setDraft({...draft,steps:a}); }} style={{...S.inp,flex:1}}/>
+                      <button onClick={() => setDraft({...draft,steps:draft.steps.filter((_,j)=>j!==i)})} style={S.rmBtn}>✕</button>
+                    </div>
+                  ))}
+                  <button onClick={() => setDraft({...draft,steps:[...draft.steps,""]})} style={S.addItemBtn}>＋ Add step</button>
+                </div>
+              </div>
+
+              {error && <div style={{ marginTop:12, padding:"10px 13px", background:"#fdecea", color:"#8b1a1a", borderRadius:7, fontSize:"0.82rem" }}>{error}</div>}
+              <div style={{ display:"flex", gap:10, marginTop:22 }}>
+                <button onClick={() => { setEditRec(null); setDraft(null); setError(""); }} style={{ padding:"12px 18px", background:"transparent", color:"#c45d1a", border:"1.5px solid rgba(196,93,26,0.25)", borderRadius:8, fontSize:"0.88rem", cursor:"pointer" }}>Cancel</button>
+                <button onClick={handleUpdate} style={{ flex:1, padding:12, background:"#c45d1a", color:"white", border:"none", borderRadius:8, fontSize:"0.9rem", fontWeight:600, cursor:"pointer" }}>
+                  {driveEnabled ? "💾 Save & Sync to Drive" : "💾 Save Changes"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
