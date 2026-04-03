@@ -189,6 +189,7 @@ function App() {
   const [search,    setSearch]    = useState("");
   const [activeTag, setActiveTag] = useState(null);
   const [viewRec,   setViewRec]   = useState(null);
+  const [editId,    setEditId]    = useState(null);
   const [showAdd,   setShowAdd]   = useState(false);
   const [step,      setStep]      = useState(1);
   const [caption,   setCaption]   = useState("");
@@ -222,12 +223,26 @@ function App() {
 
   function handleSave() {
     if (!draft.title.trim()) return setError("Please add a recipe title.");
-    setRecipes(prev => [{ ...draft, id: Date.now().toString(), saved_at: new Date().toISOString() }, ...prev]);
+    if (editId) {
+      setRecipes(prev => prev.map(r => r.id === editId ? { ...draft, id: editId, saved_at: r.saved_at } : r));
+    } else {
+      setRecipes(prev => [{ ...draft, id: Date.now().toString(), saved_at: new Date().toISOString() }, ...prev]);
+    }
     closeAdd();
   }
 
+  function openEdit(r) {
+    setViewRec(null);
+    setEditId(r.id);
+    setDraft({ ...r, titleSuggestions:[], tagSuggestions: suggestTags((r.ingredients||[]).join(" ") + " " + (r.steps||[]).join(" ") + " " + r.title) });
+    setStep(2);
+    setShowAdd(true);
+    setError("");
+    setTagInput("");
+  }
+
   function openAdd()  { setShowAdd(true); setStep(1); setCaption(""); setDraft(null); setError(""); setTagInput(""); }
-  function closeAdd() { setShowAdd(false); setStep(1); setCaption(""); setDraft(null); setError(""); setTagInput(""); }
+  function closeAdd() { setShowAdd(false); setStep(1); setCaption(""); setDraft(null); setError(""); setTagInput(""); setEditId(null); }
 
   function commitTagInput() {
     const newTag = tagInput.trim().replace(/,$/, "");
@@ -291,7 +306,7 @@ function App() {
             <div style={{ padding:"16px 20px 18px" }}>
               <p style={{ fontSize:"0.83rem", color:"#8c7b6b", lineHeight:1.6, margin:0 }}>{(r.description||"").slice(0,100)}{(r.description||"").length>100?"…":""}</p>
               <div style={{ display:"flex", flexWrap:"wrap", gap:5, marginTop:11 }}>
-                {(r.tags||[]).slice(0,3).map(t => <span key={t} style={{ padding:"2px 9px", background:"#f2ebe0", borderRadius:20, fontSize:"0.68rem", color:"#5c3d2e", fontWeight:600 }}>{t}</span>)}
+                {(r.tags||[]).map(t => <span key={t} style={{ padding:"2px 9px", background:"#f2ebe0", borderRadius:20, fontSize:"0.68rem", color:"#5c3d2e", fontWeight:600 }}>{t}</span>)}
               </div>
             </div>
             <div style={{ padding:"10px 20px", borderTop:"1px solid rgba(92,61,46,0.08)", display:"flex", justifyContent:"space-between" }}>
@@ -307,7 +322,10 @@ function App() {
         <div onClick={e => { if(e.target===e.currentTarget) setViewRec(null); }}
           style={{ position:"fixed", inset:0, background:"rgba(26,20,16,0.72)", backdropFilter:"blur(4px)", zIndex:200, overflowY:"auto", padding:"40px 20px", display:"flex", alignItems:"flex-start", justifyContent:"center" }}>
           <div style={{ background:"#fffdf9", borderRadius:18, width:"100%", maxWidth:660, overflow:"hidden", position:"relative" }}>
-            <button onClick={() => setViewRec(null)} style={{ position:"absolute", top:14, right:14, width:30, height:30, borderRadius:"50%", background:"rgba(250,246,240,0.18)", border:"none", color:"#faf6f0", cursor:"pointer", fontSize:"1rem" }}>✕</button>
+            <div style={{ position:"absolute", top:14, right:14, display:"flex", gap:8 }}>
+              <button onClick={() => openEdit(viewRec)} style={{ width:30, height:30, borderRadius:"50%", background:"rgba(250,246,240,0.18)", border:"none", color:"#faf6f0", cursor:"pointer", fontSize:"0.85rem", display:"flex", alignItems:"center", justifyContent:"center" }} title="Edit recipe">✏️</button>
+              <button onClick={() => setViewRec(null)} style={{ width:30, height:30, borderRadius:"50%", background:"rgba(250,246,240,0.18)", border:"none", color:"#faf6f0", cursor:"pointer", fontSize:"1rem", display:"flex", alignItems:"center", justifyContent:"center" }}>✕</button>
+            </div>
             <div style={{ background:"linear-gradient(135deg,#5c3d2e,#7a4f38)", padding:"30px 32px 24px" }}>
               <div style={{ fontSize:"2.6rem", marginBottom:9 }}>{getEmoji(viewRec)}</div>
               <h2 style={{ fontFamily:"'Playfair Display',serif", color:"#faf6f0", fontSize:"1.65rem", margin:0, lineHeight:1.25 }}>{viewRec.title}</h2>
@@ -358,8 +376,8 @@ function App() {
             {/* Modal header */}
             <div style={{ background:"linear-gradient(135deg,#5c3d2e,#7a4f38)", padding:"22px 26px", display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
               <div>
-                <h3 style={{ fontFamily:"'Playfair Display',serif", color:"#faf6f0", margin:0, fontSize:"1.25rem" }}>{step===1 ? "Add New Recipe" : "Review & Save"}</h3>
-                <div style={{ fontSize:"0.72rem", color:"rgba(250,246,240,0.6)", marginTop:3 }}>{step===1 ? "Step 1 of 2 — Paste caption" : "Step 2 of 2 — Edit anything, then save"}</div>
+                <h3 style={{ fontFamily:"'Playfair Display',serif", color:"#faf6f0", margin:0, fontSize:"1.25rem" }}>{editId ? "Edit Recipe" : step===1 ? "Add New Recipe" : "Review & Save"}</h3>
+                <div style={{ fontSize:"0.72rem", color:"rgba(250,246,240,0.6)", marginTop:3 }}>{editId ? "Edit anything, then save" : step===1 ? "Step 1 of 2 — Paste caption" : "Step 2 of 2 — Edit anything, then save"}</div>
               </div>
               <button onClick={closeAdd} style={{ width:30, height:30, borderRadius:"50%", background:"rgba(250,246,240,0.15)", border:"none", color:"#faf6f0", cursor:"pointer", fontSize:"1rem" }}>✕</button>
             </div>
@@ -433,8 +451,8 @@ function App() {
                         })}
                       </div>
                     )}
-                    {/* Selected pills visible while typing */}
-                    {tagInput && draft.tags.length > 0 && (
+                    {/* Selected pills — always visible */}
+                    {draft.tags.length > 0 && (
                       <div style={{ display:"flex", flexWrap:"wrap", gap:5, marginBottom:7 }}>
                         {draft.tags.map(t => (
                           <span key={t} style={{ display:"inline-flex", alignItems:"center", gap:4, padding:"4px 10px", background:"#c4622d", color:"white", borderRadius:20, fontSize:"0.74rem", fontWeight:500 }}>
@@ -488,7 +506,7 @@ function App() {
                 {error && <div style={{ marginTop:12, padding:"10px 13px", background:"#fdecea", color:"#8b1a1a", borderRadius:7, fontSize:"0.82rem" }}>{error}</div>}
                 <div style={{ display:"flex", gap:10, marginTop:22 }}>
                   <button onClick={() => { setStep(1); setError(""); }} style={{ padding:"12px 18px", background:"transparent", color:"#5c3d2e", border:"1.5px solid rgba(92,61,46,0.25)", borderRadius:8, fontSize:"0.88rem", cursor:"pointer" }}>← Back</button>
-                  <button onClick={handleSave} style={{ flex:1, padding:12, background:"#c4622d", color:"white", border:"none", borderRadius:8, fontSize:"0.9rem", fontWeight:600, cursor:"pointer" }}>💾 Save to Collection</button>
+                  <button onClick={handleSave} style={{ flex:1, padding:12, background:"#c4622d", color:"white", border:"none", borderRadius:8, fontSize:"0.9rem", fontWeight:600, cursor:"pointer" }}>{editId ? "💾 Save Changes" : "💾 Save to Collection"}</button>
                 </div>
               </div>
             )}
