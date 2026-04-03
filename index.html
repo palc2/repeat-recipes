@@ -209,7 +209,7 @@ function parseRecipeText(raw) {
     if (/^INGREDIENTS?$/.test(up))                                 { mode = "ingredients"; continue; }
     if (/^(INSTRUCTIONS?|DIRECTIONS?|METHODS?|STEPS?)$/.test(up)) { mode = "steps";       continue; }
     if (isMetaLine(line))                                          { meta.push(line);       continue; }
-    const clean = line.replace(/^[•\-\*\u2022]\s*/, "").replace(/^\d+[\.)\s]\s*/, "").trim();
+    const clean = line.replace(/^[•\-\*\u2022]\s*/, "").replace(/^\d+[.)]\s*/, "").trim();
     if      (mode === "ingredients") { if (isStepLine(clean)) { mode="steps"; steps.push(clean); } else ingredients.push(clean); }
     else if (mode === "steps")       { steps.push(clean); }
     else { if (isStepLine(clean)) { mode="steps"; steps.push(clean); } else if (isIngredientLine(line)) { mode="ingredients"; ingredients.push(clean); } else ingredients.push(clean); }
@@ -574,7 +574,7 @@ function App() {
                         })}
                       </div>
                     )}
-                    {tagInput && draft.tags.length > 0 && (
+                    {draft.tags.length > 0 && (
                       <div style={{ display:"flex", flexWrap:"wrap", gap:5, marginBottom:7 }}>
                         {draft.tags.map(t => (
                           <span key={t} style={{ display:"inline-flex", alignItems:"center", gap:4, padding:"4px 10px", background:"#c45d1a", color:"white", borderRadius:20, fontSize:"0.74rem", fontWeight:500 }}>
