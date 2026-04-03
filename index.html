@@ -446,7 +446,7 @@ function App() {
             <div style={{ padding:"16px 20px 18px" }}>
               <p style={{ fontSize:"0.83rem", color:"#a08060", lineHeight:1.6, margin:0 }}>{(r.description||"").slice(0,100)}{(r.description||"").length>100?"…":""}</p>
               <div style={{ display:"flex", flexWrap:"wrap", gap:5, marginTop:11 }}>
-                {(r.tags||[]).slice(0,3).map(t => <span key={t} style={{ padding:"2px 9px", background:"#f0e8d8", borderRadius:20, fontSize:"0.68rem", color:"#c45d1a", fontWeight:600 }}>{t}</span>)}
+                {(r.tags||[]).slice(0,6).map(t => <span key={t} style={{ padding:"2px 9px", background:"#f0e8d8", borderRadius:20, fontSize:"0.68rem", color:"#c45d1a", fontWeight:600 }}>{t}</span>)}
               </div>
             </div>
             <div style={{ padding:"10px 20px", borderTop:"1px solid rgba(196,93,26,0.08)", display:"flex", justifyContent:"space-between" }}>
