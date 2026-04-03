@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>My Repeat Recipes</title>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<!-- Google Identity Services for Drive sync -->
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -13,25 +15,112 @@
   body { font-family: 'DM Sans', sans-serif; background: #faf7f2; color: #1a1410; min-height: 100vh; }
   button { font-family: 'DM Sans', sans-serif; }
   input, textarea { font-family: 'DM Sans', sans-serif; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spinner { display:inline-block; width:12px; height:12px; border:2px solid rgba(255,255,255,0.35); border-top-color:white; border-radius:50%; animation: spin 0.7s linear infinite; vertical-align:middle; margin-right:5px; }
+  @keyframes slideIn { from { opacity:0; transform:translateY(-5px); } to { opacity:1; transform:none; } }
+  .drive-banner { animation: slideIn 0.25s ease; }
 </style>
 </head>
 <body>
 <div id="root"></div>
-
 <script type="text/babel">
-const { useState } = React;
+const { useState, useEffect } = React;
 
-// ── Export helper ────────────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════════════
+//  GOOGLE DRIVE SYNC
+//  ➜ Replace the placeholder below with YOUR OAuth 2.0 Client ID.
+//
+//  Quick setup (free, ~5 minutes):
+//  1. https://console.cloud.google.com/ → new project
+//  2. APIs & Services → Enable APIs → "Google Drive API"
+//  3. Credentials → + Create Credentials → OAuth client ID
+//  4. Application type: Web application
+//  5. Authorised JavaScript origins:
+//       • https://YOUR-USER.github.io   (your GitHub Pages URL)
+//       • http://localhost              (for local testing)
+//  6. Copy the Client ID and paste it below ↓
+// ════════════════════════════════════════════════════════════════════
+const GDRIVE_CLIENT_ID = "YOUR_CLIENT_ID_HERE.apps.googleusercontent.com";
+const GDRIVE_SCOPE     = "https://www.googleapis.com/auth/drive.appdata";
+const GDRIVE_FILENAME  = "repeat-recipes.json";
+
+// Module-level token (survives re-renders, cleared on expiry)
+let _token = null;
+
+function getToken() {
+  return new Promise((resolve, reject) => {
+    if (_token) { resolve(_token); return; }
+    if (!window.google?.accounts?.oauth2) { reject(new Error("GIS not loaded")); return; }
+    const client = window.google.accounts.oauth2.initTokenClient({
+      client_id: GDRIVE_CLIENT_ID,
+      scope: GDRIVE_SCOPE,
+      callback: (resp) => {
+        if (resp.error) { reject(new Error(resp.error)); return; }
+        _token = resp.access_token;
+        setTimeout(() => { _token = null; }, (resp.expires_in - 60) * 1000);
+        resolve(_token);
+      },
+    });
+    client.requestAccessToken({ prompt: "" }); // silent if already consented
+  });
+}
+
+async function findFileId(token) {
+  const res  = await fetch(
+    `https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=name%3D%22${GDRIVE_FILENAME}%22&fields=files(id)`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  const data = await res.json();
+  return data.files?.[0]?.id || null;
+}
+
+async function driveLoad() {
+  const token  = await getToken();
+  const fileId = await findFileId(token);
+  if (!fileId) return [];
+  const res = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  return await res.json();
+}
+
+async function driveSave(recipes) {
+  const token  = await getToken();
+  const fileId = await findFileId(token);
+  const blob   = new Blob([JSON.stringify(recipes, null, 2)], { type: "application/json" });
+
+  if (fileId) {
+    await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`, {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: blob,
+    });
+  } else {
+    const meta = JSON.stringify({ name: GDRIVE_FILENAME, parents: ["appDataFolder"] });
+    const form = new FormData();
+    form.append("metadata", new Blob([meta], { type: "application/json" }));
+    form.append("file", blob);
+    await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+    });
+  }
+}
+
+// Local JSON download (fallback / manual backup)
 function exportRecipes(recipes) {
-  const json = JSON.stringify(recipes, null, 2);
-  const blob = new Blob([json], { type: "application/json" });
+  const blob = new Blob([JSON.stringify(recipes, null, 2)], { type: "application/json" });
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement("a");
   a.href = url; a.download = "recipes.json"; a.click();
   URL.revokeObjectURL(url);
 }
 
-// ── Emoji map ────────────────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════════════
+//  HELPERS — emoji, tags, parser (unchanged from original)
+// ════════════════════════════════════════════════════════════════════
 const EMOJIS = {
   chicken:"🍗", salmon:"🐟", fish:"🐟", seafood:"🦐", shrimp:"🦐", beef:"🥩", pork:"🥩",
   pasta:"🍝", rice:"🍚", soup:"🍲", salad:"🥗", cake:"🎂", chocolate:"🍫",
@@ -45,8 +134,6 @@ function getEmoji(r) {
   for (const [k,v] of Object.entries(EMOJIS)) if (t.includes(k)) return v;
   return "🍴";
 }
-
-// ── Tag rules ────────────────────────────────────────────────────────
 const TAG_RULES = [
   { tags:["breakfast"],    words:["breakfast","muffin","pancake","waffle","oat","porridge","granola","egg","toast"] },
   { tags:["dessert"],      words:["cake","cookie","brownie","chocolate","sweet","dessert","pudding","tart","pie"] },
@@ -72,119 +159,76 @@ const TAG_RULES = [
   { tags:["salmon"],       words:["salmon"] },
   { tags:["pasta"],        words:["pasta","spaghetti","penne","fettuccine","linguine"] },
 ];
-
 function suggestTags(text) {
-  const lower = text.toLowerCase();
-  const found = new Set();
-  for (const rule of TAG_RULES)
-    if (rule.words.some(w => lower.includes(w))) rule.tags.forEach(t => found.add(t));
+  const lower = text.toLowerCase(), found = new Set();
+  for (const rule of TAG_RULES) if (rule.words.some(w => lower.includes(w))) rule.tags.forEach(t => found.add(t));
   return [...found].slice(0, 8);
 }
-
-function titleCase(str) {
-  return str.replace(/\w\S*/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
-}
-
+function titleCase(str) { return str.replace(/\w\S*/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()); }
 function suggestTitles(text) {
-  const lower = text.toLowerCase();
-  const titles = [];
+  const lower = text.toLowerCase(), titles = [];
   const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
-
   for (const line of lines) {
     const up = line.toUpperCase().replace(/:$/, "");
     if (/^(INGREDIENTS?|INSTRUCTIONS?|DIRECTIONS?|STEPS?|METHODS?)$/.test(up)) continue;
     if (/^[•\-\*\d]/.test(line)) continue;
     if (line.length > 4 && line.length < 60) { titles.push(titleCase(line)); break; }
   }
-
   const keyIngreds = ["raspberry","banana","chocolate","oat","salmon","chicken","beef","pasta","potato","mango","blueberry","strawberry","chickpea","avocado","lemon"];
   const found = keyIngreds.filter(k => lower.includes(k));
   const dishWords = ["muffin","cake","cookie","brownie","salad","bowl","pasta","soup","curry","roast","pancake","waffle","bar","ball","cracker","patty"];
   const dish = dishWords.find(d => lower.includes(d));
-
-  if (found.length && dish) titles.push(titleCase(found.slice(0,2).join(" & ") + " " + dish + "s"));
-  else if (found.length)    titles.push(titleCase(found.slice(0,2).join(" & ") + " recipe"));
-  else if (dish)            titles.push(titleCase("homemade " + dish + "s"));
+  if (found.length && dish)  titles.push(titleCase(found.slice(0,2).join(" & ") + " " + dish + "s"));
+  else if (found.length)     titles.push(titleCase(found.slice(0,2).join(" & ") + " recipe"));
+  else if (dish)             titles.push(titleCase("homemade " + dish + "s"));
   if (lower.includes("protein") && dish) titles.push(titleCase("protein " + (found[0]||"") + " " + dish + "s"));
-
   return [...new Set(titles)].filter(Boolean).slice(0, 3);
 }
-
-// ── Smart parser ─────────────────────────────────────────────────────
 const STEP_VERBS = /^(blend|mix(?!ed)|combine|add|stir|fold|pour|heat|cook|bake|roast|fry|place|put|season|shape|sprinkle|top|serve|remove|let|allow|transfer|drain|preheat|whisk|beat|chop|slice|dice|mash|coat|toss|cover|simmer|boil|steam|sauté|saute|grill|broil|press|flatten|roll|cut|spread|line|divide|fill|store|freeze|cool|rest|brush|drizzle|prepare|make|bring|reduce|set|wait|ensure|taste|check|repeat)\b/i;
-
 function isStepLine(line)       { return STEP_VERBS.test(line) || line.length > 80; }
 function isIngredientLine(line) { return /^[\d½¼¾⅓⅔]/.test(line) || /^[•\-\*\u2022]/.test(line) || /^(pinch|handful|dash|splash)\b/i.test(line); }
 function isMetaLine(line)       { return /^(time|temp|temperature|serves|servings|yield|makes|calories|prep|cook|total)\s*:/i.test(line); }
-
 function parseRecipeText(raw) {
-  // Merge continuation lines (lowercase-starting lines glue to previous)
-  const rawLines = raw.split("\n");
-  const joined = [];
+  const rawLines = raw.split("\n"), joined = [];
   let i = 0;
   while (i < rawLines.length) {
     let line = rawLines[i].trim(); i++;
     if (!line) { joined.push(""); continue; }
     while (i < rawLines.length) {
       const nxt = rawLines[i].trim();
-      if (nxt && nxt[0] === nxt[0].toLowerCase() && nxt[0] !== nxt[0].toUpperCase() && !isIngredientLine(nxt) && !/^\d+$/.test(nxt)) {
-        line = line + " " + nxt; i++;
-      } else break;
+      if (nxt && nxt[0] === nxt[0].toLowerCase() && nxt[0] !== nxt[0].toUpperCase() && !isIngredientLine(nxt) && !/^\d+$/.test(nxt)) { line = line + " " + nxt; i++; } else break;
     }
     joined.push(line);
   }
-
   const ingredients = [], steps = [], meta = [];
   let mode = null;
-
   for (const raw of joined) {
     const line = raw.trim();
     if (!line || /^\d+$/.test(line)) continue;
-
     const up = line.toUpperCase().replace(/:$/, "").trim();
-    if (/^INGREDIENTS?$/.test(up))                         { mode = "ingredients"; continue; }
-    if (/^(INSTRUCTIONS?|DIRECTIONS?|METHODS?|STEPS?)$/.test(up)) { mode = "steps"; continue; }
-    if (isMetaLine(line))                                  { meta.push(line); continue; }
-
+    if (/^INGREDIENTS?$/.test(up))                                 { mode = "ingredients"; continue; }
+    if (/^(INSTRUCTIONS?|DIRECTIONS?|METHODS?|STEPS?)$/.test(up)) { mode = "steps";       continue; }
+    if (isMetaLine(line))                                          { meta.push(line);       continue; }
     const clean = line.replace(/^[•\-\*\u2022]\s*/, "").replace(/^\d+[\.)\s]\s*/, "").trim();
-
-    if (mode === "ingredients") {
-      if (isStepLine(clean)) { mode = "steps"; steps.push(clean); }
-      else                   { ingredients.push(clean); }
-    } else if (mode === "steps") {
-      steps.push(clean);
-    } else {
-      if (isStepLine(clean))       { mode = "steps";       steps.push(clean); }
-      else if (isIngredientLine(line)) { mode = "ingredients"; ingredients.push(clean); }
-      else                         { ingredients.push(clean); }
-    }
+    if      (mode === "ingredients") { if (isStepLine(clean)) { mode="steps"; steps.push(clean); } else ingredients.push(clean); }
+    else if (mode === "steps")       { steps.push(clean); }
+    else { if (isStepLine(clean)) { mode="steps"; steps.push(clean); } else if (isIngredientLine(line)) { mode="ingredients"; ingredients.push(clean); } else ingredients.push(clean); }
   }
-
   let time = "", servings = "";
   for (const m of meta) {
-    if (/^(time|prep|cook|total)/i.test(m))          time     = m.replace(/^[^:]+:\s*/, "").trim();
-    if (/^(serves|servings|yield|makes)/i.test(m))   servings = m.replace(/^[^:]+:\s*/, "").trim();
+    if (/^(time|prep|cook|total)/i.test(m))        time     = m.replace(/^[^:]+:\s*/, "").trim();
+    if (/^(serves|servings|yield|makes)/i.test(m)) servings = m.replace(/^[^:]+:\s*/, "").trim();
   }
-
-  return {
-    ingredients, steps, time, servings,
-    titleSuggestions: suggestTitles(raw),
-    tagSuggestions:   suggestTags(raw + " " + ingredients.join(" ") + " " + steps.join(" ")),
-  };
+  return { ingredients, steps, time, servings, titleSuggestions: suggestTitles(raw), tagSuggestions: suggestTags(raw + " " + ingredients.join(" ") + " " + steps.join(" ")) };
 }
 
-// ── Sample data ──────────────────────────────────────────────────────
 const SAMPLE = [
-  {
-    id:"1", title:"Crispy Smashed Potatoes",
-    description:"Golden and crispy outside, fluffy inside. The ultimate side dish.",
+  { id:"1", title:"Crispy Smashed Potatoes", description:"Golden and crispy outside, fluffy inside. The ultimate side dish.",
     ingredients:["1.5 lbs baby potatoes","3 tbsp olive oil","4 garlic cloves, minced","2 tsp fresh rosemary","1 tsp flaky sea salt","Black pepper to taste"],
     steps:["Boil potatoes in salted water for 15-20 minutes until fork-tender.","Drain and let steam dry for 5 minutes.","Smash each potato flat on a greased baking sheet using a glass.","Drizzle with olive oil, garlic, rosemary, salt and pepper.","Roast at 220°C for 25-30 minutes until edges are golden and crispy."],
-    servings:"4 servings", time:"50 minutes", tags:["side dish","vegetarian","baked"]
-  }
+    servings:"4 servings", time:"50 minutes", tags:["side dish","vegetarian","baked"] }
 ];
 
-// ── Shared styles ────────────────────────────────────────────────────
 const S = {
   lbl:        { fontSize:"0.7rem", fontWeight:700, color:"#c45d1a", textTransform:"uppercase", letterSpacing:"0.07em", display:"block", marginBottom:5 },
   inp:        { width:"100%", padding:"9px 11px", border:"1.5px solid rgba(196,93,26,0.18)", borderRadius:7, background:"#faf7f2", fontSize:"0.84rem", color:"#1a1410", outline:"none", boxSizing:"border-box" },
@@ -193,19 +237,81 @@ const S = {
   secLabel:   { fontFamily:"'Playfair Display',serif", fontSize:"1rem", color:"#c45d1a", borderBottom:"2px solid #fdd87a", display:"inline-block", paddingBottom:6, marginBottom:13 },
 };
 
-// ── App ──────────────────────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════════════
+//  APP
+// ════════════════════════════════════════════════════════════════════
 function App() {
-  const [recipes,   setRecipes]   = useState(SAMPLE);
-  const [search,    setSearch]    = useState("");
-  const [activeTag, setActiveTag] = useState(null);
-  const [activeType, setActiveType] = useState(null); // "bakes" | "cooks" | null
-  const [viewRec,   setViewRec]   = useState(null);
-  const [showAdd,   setShowAdd]   = useState(false);
-  const [step,      setStep]      = useState(1);
-  const [caption,   setCaption]   = useState("");
-  const [draft,     setDraft]     = useState(null);
-  const [tagInput,  setTagInput]  = useState("");
-  const [error,     setError]     = useState("");
+  const [recipes,    setRecipes]    = useState(SAMPLE);
+  const [search,     setSearch]     = useState("");
+  const [activeTag,  setActiveTag]  = useState(null);
+  const [activeType, setActiveType] = useState(null);
+  const [viewRec,    setViewRec]    = useState(null);
+  const [showAdd,    setShowAdd]    = useState(false);
+  const [step,       setStep]       = useState(1);
+  const [caption,    setCaption]    = useState("");
+  const [draft,      setDraft]      = useState(null);
+  const [tagInput,   setTagInput]   = useState("");
+  const [error,      setError]      = useState("");
+
+  // Drive sync state: "idle" | "loading" | "saving" | "synced" | "error" | "disabled"
+  const [driveStatus, setDriveStatus] = useState("idle");
+  const [driveMsg,    setDriveMsg]    = useState("");
+  const [gisReady,    setGisReady]    = useState(false);
+
+  const driveEnabled = GDRIVE_CLIENT_ID !== "YOUR_CLIENT_ID_HERE.apps.googleusercontent.com";
+
+  // Poll for GIS script to finish loading
+  useEffect(() => {
+    if (!driveEnabled) { setDriveStatus("disabled"); return; }
+    const check = setInterval(() => {
+      if (window.google?.accounts?.oauth2) { setGisReady(true); clearInterval(check); }
+    }, 200);
+    return () => clearInterval(check);
+  }, [driveEnabled]);
+
+  // Auto-load once GIS is ready
+  useEffect(() => {
+    if (gisReady) handleDriveLoad();
+  }, [gisReady]);
+
+  async function handleDriveLoad() {
+    setDriveStatus("loading");
+    setDriveMsg("Loading from Google Drive…");
+    try {
+      const loaded = await driveLoad();
+      if (loaded.length > 0) {
+        setRecipes(loaded);
+        setDriveMsg(`Loaded ${loaded.length} recipe${loaded.length !== 1 ? "s" : ""} from Drive ✓`);
+      } else {
+        setDriveMsg("Connected — recipes will be saved to Drive automatically");
+      }
+      setDriveStatus("synced");
+      setTimeout(() => setDriveMsg(""), 4000);
+    } catch (e) {
+      if (e.message === "access_denied") {
+        setDriveStatus("idle"); setDriveMsg("");
+      } else {
+        setDriveStatus("error");
+        setDriveMsg(`Drive error: ${e.message}`);
+      }
+    }
+  }
+
+  async function saveWithDriveSync(newRecipes) {
+    setRecipes(newRecipes);
+    if (!driveEnabled || !gisReady) return;
+    setDriveStatus("saving");
+    setDriveMsg("Saving to Drive…");
+    try {
+      await driveSave(newRecipes);
+      setDriveStatus("synced");
+      setDriveMsg("Saved to Drive ✓");
+      setTimeout(() => setDriveMsg(""), 3000);
+    } catch (e) {
+      setDriveStatus("error");
+      setDriveMsg(`Drive save failed — ${e.message}`);
+    }
+  }
 
   // Filtering
   const filtered = recipes.filter(r => {
@@ -215,8 +321,6 @@ function App() {
     const matchQ = !q || [r.title, r.description, ...(r.tags||[]), ...(r.ingredients||[])].some(s => s?.toLowerCase().includes(q));
     return matchTag && matchType && matchQ;
   });
-
-  // Top tags
   const tagFreq = {};
   recipes.forEach(r => (r.tags||[]).forEach(t => tagFreq[t] = (tagFreq[t]||0)+1));
   const topTags = Object.entries(tagFreq).sort((a,b)=>b[1]-a[1]).slice(0,8).map(e=>e[0]);
@@ -224,28 +328,28 @@ function App() {
   // Add flow
   function handleFormat() {
     if (!caption.trim()) return setError("Please paste some recipe text first.");
-    const { ingredients, steps, time, servings, titleSuggestions, tagSuggestions } = parseRecipeText(caption);
-    if (!ingredients.length && !steps.length)
-      return setError("Couldn't detect sections. Make sure your text includes ingredients and instructions.");
+    const parsed = parseRecipeText(caption);
+    if (!parsed.ingredients.length && !parsed.steps.length) return setError("Couldn't detect sections. Make sure your text includes ingredients and instructions.");
     setError("");
-    setDraft({ title: titleSuggestions[0]||"", description:"", time, servings, tags:[], cookType: null, ingredients, steps, titleSuggestions, tagSuggestions });
+    setDraft({ title: parsed.titleSuggestions[0]||"", description:"", time:parsed.time, servings:parsed.servings, tags:[], cookType:null, ingredients:parsed.ingredients, steps:parsed.steps, titleSuggestions:parsed.titleSuggestions, tagSuggestions:parsed.tagSuggestions });
     setStep(2);
   }
-
   function handleSave() {
     if (!draft.title.trim()) return setError("Please add a recipe title.");
-    setRecipes(prev => [{ ...draft, id: Date.now().toString(), saved_at: new Date().toISOString() }, ...prev]);
+    saveWithDriveSync([{ ...draft, id: Date.now().toString(), saved_at: new Date().toISOString() }, ...recipes]);
     closeAdd();
   }
-
   function openAdd()  { setShowAdd(true); setStep(1); setCaption(""); setDraft(null); setError(""); setTagInput(""); }
   function closeAdd() { setShowAdd(false); setStep(1); setCaption(""); setDraft(null); setError(""); setTagInput(""); }
-
   function commitTagInput() {
-    const newTag = tagInput.trim().replace(/,$/, "");
-    if (newTag && !draft.tags.includes(newTag)) setDraft(d => ({...d, tags:[...d.tags, newTag]}));
+    const t = tagInput.trim().replace(/,$/, "");
+    if (t && !draft.tags.includes(t)) setDraft(d => ({...d, tags:[...d.tags, t]}));
     setTagInput("");
   }
+
+  const statusBg   = { idle:"rgba(255,255,255,0.12)", loading:"rgba(253,216,122,0.5)", saving:"rgba(253,216,122,0.5)", synced:"rgba(76,175,143,0.6)", error:"rgba(232,85,58,0.6)", disabled:"rgba(255,255,255,0.06)" };
+  const statusText = { idle:"rgba(255,245,236,0.55)", loading:"#fff5ec", saving:"#fff5ec", synced:"#fff5ec", error:"#fff5ec", disabled:"rgba(255,245,236,0.25)" };
+  const isBusy     = driveStatus === "loading" || driveStatus === "saving";
 
   return (
     <div style={{ background:"#faf7f2", minHeight:"100vh" }}>
@@ -255,12 +359,12 @@ function App() {
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", paddingBottom:14, borderBottom:"1px solid rgba(255,255,255,0.12)" }}>
           <div>
             <h1 style={{ fontFamily:"'Playfair Display',serif", fontSize:"clamp(1.3rem,3vw,1.7rem)", color:"#fff5ec", margin:0, letterSpacing:"-0.01em" }}>My Repeat Recipes</h1>
-            <p style={{ color:"rgba(255,245,236,0.5)", margin:"3px 0 0", fontSize:"0.78rem" }}>{recipes.length} recipe{recipes.length !== 1 ? "s" : ""} · tested &amp; loved</p>
+            <p style={{ color:"rgba(255,245,236,0.5)", margin:"3px 0 0", fontSize:"0.78rem" }}>{recipes.length} recipe{recipes.length!==1?"s":""} · tested &amp; loved</p>
           </div>
-          <div style={{ display:"flex", gap:8, alignItems:"center", flexShrink:0 }}>
+          <div style={{ display:"flex", gap:8, alignItems:"center", flexShrink:0, flexWrap:"wrap", justifyContent:"flex-end" }}>
             <div style={{ display:"flex", background:"rgba(0,0,0,0.15)", borderRadius:6, overflow:"hidden" }}>
               {["bakes","cooks"].map(type => (
-                <button key={type} onClick={() => setActiveType(activeType===type ? null : type)}
+                <button key={type} onClick={() => setActiveType(activeType===type?null:type)}
                   style={{ padding:"6px 13px", border:"none", fontSize:"0.75rem", fontWeight:600, cursor:"pointer", transition:"all 0.15s",
                     background: activeType===type ? "rgba(255,255,255,0.18)" : "transparent",
                     color: activeType===type ? "#fff5ec" : "rgba(255,245,236,0.45)" }}>
@@ -268,15 +372,39 @@ function App() {
                 </button>
               ))}
             </div>
-            <button onClick={openAdd} style={{ padding:"6px 14px", background:"#fff5ec", color:"#7a3209", border:"none", borderRadius:6, fontSize:"0.78rem", fontWeight:600, cursor:"pointer" }}>
-              ＋ Add
+            <button onClick={openAdd} style={{ padding:"6px 14px", background:"#fff5ec", color:"#7a3209", border:"none", borderRadius:6, fontSize:"0.78rem", fontWeight:600, cursor:"pointer" }}>＋ Add</button>
+
+            {/* Drive sync button */}
+            <button onClick={driveEnabled ? handleDriveLoad : undefined}
+              title={driveEnabled ? "Click to re-sync from Google Drive" : "Set GDRIVE_CLIENT_ID in the HTML to enable Drive sync"}
+              style={{ padding:"6px 12px", background:statusBg[driveStatus], color:statusText[driveStatus],
+                border:"1px solid rgba(255,255,255,0.18)", borderRadius:6, fontSize:"0.78rem", cursor:driveEnabled?"pointer":"default",
+                display:"flex", alignItems:"center", gap:5, transition:"background 0.3s" }}>
+              {isBusy && <span className="spinner"/>}
+              {!isBusy && driveStatus==="synced" && "✓ "}
+              {!isBusy && driveStatus==="error"  && "⚠ "}
+              ☁ Drive
             </button>
+
             <button onClick={() => exportRecipes(recipes)}
               style={{ padding:"6px 12px", background:"rgba(255,255,255,0.1)", color:"rgba(255,245,236,0.75)", border:"1px solid rgba(255,255,255,0.18)", borderRadius:6, fontSize:"0.78rem", cursor:"pointer" }}>
               ↓ Export
             </button>
           </div>
         </div>
+
+        {/* Status banner — only rendered when there's a message */}
+        {driveMsg ? (
+          <div className="drive-banner" style={{ padding:"6px 0 10px", fontSize:"0.74rem", display:"flex", alignItems:"center", gap:6,
+            color: driveStatus==="error" ? "#ffb3a0" : "rgba(255,245,236,0.65)" }}>
+            {isBusy && <span className="spinner"/>}
+            {driveMsg}
+          </div>
+        ) : !driveEnabled ? (
+          <div style={{ padding:"6px 0 10px", fontSize:"0.72rem", color:"rgba(255,245,236,0.35)" }}>
+            💡 Drive sync off — paste your Google OAuth Client ID into <code style={{fontFamily:"monospace",background:"rgba(0,0,0,0.2)",padding:"1px 5px",borderRadius:3}}>GDRIVE_CLIENT_ID</code>
+          </div>
+        ) : <div style={{height:10}}/>}
       </div>
 
       {/* ── Search + Tags ── */}
@@ -285,7 +413,7 @@ function App() {
           style={{ flex:1, minWidth:180, padding:"7px 12px", border:"1px solid rgba(196,93,26,0.2)", borderRadius:6, background:"#fff", fontSize:"0.85rem", outline:"none" }}/>
         <div style={{ display:"flex", flexWrap:"wrap", gap:7 }}>
           {topTags.map(tag => (
-            <button key={tag} onClick={() => setActiveTag(activeTag===tag ? null : tag)}
+            <button key={tag} onClick={() => setActiveTag(activeTag===tag?null:tag)}
               style={{ padding:"5px 13px", borderRadius:20, border:"1.5px solid", borderColor:activeTag===tag?"#c45d1a":"rgba(196,93,26,0.2)", background:activeTag===tag?"#c45d1a":"transparent", color:activeTag===tag?"white":"#c45d1a", fontSize:"0.75rem", fontWeight:500, cursor:"pointer" }}>
               {tag}
             </button>
@@ -297,9 +425,9 @@ function App() {
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(290px,1fr))", gap:22, padding:"28px 32px", maxWidth:1400, margin:"0 auto" }}>
         {!filtered.length ? (
           <div style={{ gridColumn:"1/-1", textAlign:"center", padding:"80px 20px", color:"#a08060" }}>
-            <div style={{ fontSize:"3rem", marginBottom:14 }}>{recipes.length ? "🔍" : "🍴"}</div>
-            <h3 style={{ fontFamily:"'Playfair Display',serif", color:"#c45d1a", marginBottom:8 }}>{recipes.length ? "No recipes found" : "No recipes yet"}</h3>
-            <p style={{ fontSize:"0.88rem" }}>{recipes.length ? "Try a different search." : "Hit \"+ Add Recipe\" to get started."}</p>
+            <div style={{ fontSize:"3rem", marginBottom:14 }}>{recipes.length?"🔍":"🍴"}</div>
+            <h3 style={{ fontFamily:"'Playfair Display',serif", color:"#c45d1a", marginBottom:8 }}>{recipes.length?"No recipes found":"No recipes yet"}</h3>
+            <p style={{ fontSize:"0.88rem" }}>{recipes.length?"Try a different search.":"Hit \"+ Add\" to get started."}</p>
           </div>
         ) : filtered.map(r => (
           <div key={r.id} onClick={() => setViewRec(r)}
@@ -307,13 +435,7 @@ function App() {
             onMouseEnter={e => { e.currentTarget.style.transform="translateY(-4px)"; e.currentTarget.style.boxShadow="0 14px 40px rgba(196,93,26,0.13)"; }}
             onMouseLeave={e => { e.currentTarget.style.transform=""; e.currentTarget.style.boxShadow=""; }}>
             <div style={{ background:"linear-gradient(135deg,#c45d1a,#a84d14)", padding:"22px 20px 16px", position:"relative" }}>
-              {r.cookType && (
-                <span style={{ position:"absolute", top:10, right:12, fontSize:"0.65rem", fontWeight:700, padding:"3px 8px", borderRadius:20,
-                  background: r.cookType==="bakes" ? "#fdd87a" : "#e8855a",
-                  color:      r.cookType==="bakes" ? "#1a1410" : "white" }}>
-                  {r.cookType==="bakes" ? "🧁 bake" : "🍳 cook"}
-                </span>
-              )}
+              {r.cookType && <span style={{ position:"absolute", top:10, right:12, fontSize:"0.65rem", fontWeight:700, padding:"3px 8px", borderRadius:20, background:r.cookType==="bakes"?"#fdd87a":"#e8855a", color:r.cookType==="bakes"?"#1a1410":"white" }}>{r.cookType==="bakes"?"🧁 bake":"🍳 cook"}</span>}
               <div style={{ fontSize:"2rem", marginBottom:7 }}>{getEmoji(r)}</div>
               <h3 style={{ fontFamily:"'Playfair Display',serif", color:"#faf7f2", fontSize:"1.1rem", lineHeight:1.3, margin:0 }}>{r.title}</h3>
               <div style={{ display:"flex", gap:12, marginTop:9 }}>
@@ -387,17 +509,14 @@ function App() {
         <div onClick={e => { if(e.target===e.currentTarget) closeAdd(); }}
           style={{ position:"fixed", inset:0, background:"rgba(26,20,16,0.75)", backdropFilter:"blur(4px)", zIndex:300, overflowY:"auto", padding:"40px 20px", display:"flex", alignItems:"flex-start", justifyContent:"center" }}>
           <div style={{ background:"#fff", borderRadius:18, width:"100%", maxWidth:600, overflow:"hidden" }}>
-
-            {/* Modal header */}
             <div style={{ background:"linear-gradient(135deg,#c45d1a,#a84d14)", padding:"22px 26px", display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
               <div>
-                <h3 style={{ fontFamily:"'Playfair Display',serif", color:"#faf7f2", margin:0, fontSize:"1.25rem" }}>{step===1 ? "Add New Recipe" : "Review & Save"}</h3>
-                <div style={{ fontSize:"0.72rem", color:"rgba(255,245,236,0.6)", marginTop:3 }}>{step===1 ? "Step 1 of 2 — Paste caption" : "Step 2 of 2 — Edit anything, then save"}</div>
+                <h3 style={{ fontFamily:"'Playfair Display',serif", color:"#faf7f2", margin:0, fontSize:"1.25rem" }}>{step===1?"Add New Recipe":"Review & Save"}</h3>
+                <div style={{ fontSize:"0.72rem", color:"rgba(255,245,236,0.6)", marginTop:3 }}>{step===1?"Step 1 of 2 — Paste caption":"Step 2 of 2 — Edit anything, then save"}</div>
               </div>
               <button onClick={closeAdd} style={{ width:30, height:30, borderRadius:"50%", background:"rgba(255,245,236,0.15)", border:"none", color:"#faf7f2", cursor:"pointer", fontSize:"1rem" }}>✕</button>
             </div>
 
-            {/* Step 1 — Paste */}
             {step===1 && (
               <div style={{ padding:"22px 26px 26px" }}>
                 <label style={S.lbl}>Paste the Instagram caption</label>
@@ -406,18 +525,12 @@ function App() {
                   placeholder={"INGREDIENTS\n• 200g oat flour\n• 2 eggs\n...\n\nINSTRUCTIONS\n1. Preheat oven..."}
                   style={{ width:"100%", minHeight:200, padding:"11px 13px", border:"1.5px solid rgba(196,93,26,0.2)", borderRadius:8, background:"#faf7f2", fontFamily:"monospace", fontSize:"0.85rem", resize:"vertical", outline:"none", lineHeight:1.6, boxSizing:"border-box" }}/>
                 {error && <div style={{ marginTop:12, padding:"10px 13px", background:"#fdecea", color:"#8b1a1a", borderRadius:7, fontSize:"0.82rem" }}>{error}</div>}
-                <button onClick={handleFormat}
-                  style={{ width:"100%", marginTop:16, padding:13, background:"#c45d1a", color:"white", border:"none", borderRadius:8, fontSize:"0.9rem", fontWeight:600, cursor:"pointer" }}>
-                  Parse Recipe →
-                </button>
+                <button onClick={handleFormat} style={{ width:"100%", marginTop:16, padding:13, background:"#c45d1a", color:"white", border:"none", borderRadius:8, fontSize:"0.9rem", fontWeight:600, cursor:"pointer" }}>Parse Recipe →</button>
               </div>
             )}
 
-            {/* Step 2 — Review */}
             {step===2 && draft && (
               <div style={{ padding:"22px 26px 26px", maxHeight:"74vh", overflowY:"auto" }}>
-
-                {/* Title chips + input */}
                 <div style={{ background:"#fff8f0", border:"1.5px solid #c45d1a", borderRadius:8, padding:"12px 14px", marginBottom:16 }}>
                   <label style={{...S.lbl, color:"#c45d1a"}}>Recipe Title *</label>
                   {(draft.titleSuggestions||[]).length > 0 && (
@@ -425,84 +538,57 @@ function App() {
                       {draft.titleSuggestions.map(t => (
                         <button key={t} onClick={() => setDraft({...draft, title:t})}
                           style={{ padding:"5px 12px", borderRadius:20, border:"1.5px solid", cursor:"pointer", fontSize:"0.78rem", fontWeight:500,
-                            borderColor: draft.title===t ? "#c45d1a":"rgba(196,93,26,0.25)",
-                            background:  draft.title===t ? "#c45d1a":"white",
-                            color:       draft.title===t ? "white":"#c45d1a" }}>
+                            borderColor: draft.title===t?"#c45d1a":"rgba(196,93,26,0.25)", background: draft.title===t?"#c45d1a":"white", color: draft.title===t?"white":"#c45d1a" }}>
                           {t}
                         </button>
                       ))}
                     </div>
                   )}
-                  <input value={draft.title} onChange={e => setDraft({...draft,title:e.target.value})}
-                    placeholder="or type your own title…" style={{...S.inp, background:"white"}}/>
+                  <input value={draft.title} onChange={e => setDraft({...draft,title:e.target.value})} placeholder="or type your own title…" style={{...S.inp, background:"white"}}/>
                 </div>
 
-                {/* Time + Servings + CookType + Tags */}
                 <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
-                  <div>
-                    <label style={S.lbl}>Time</label>
-                    <input value={draft.time} onChange={e => setDraft({...draft,time:e.target.value})} style={S.inp} placeholder="e.g. 35 min"/>
-                  </div>
-                  <div>
-                    <label style={S.lbl}>Servings</label>
-                    <input value={draft.servings} onChange={e => setDraft({...draft,servings:e.target.value})} style={S.inp} placeholder="e.g. 12 muffins"/>
-                  </div>
+                  <div><label style={S.lbl}>Time</label><input value={draft.time} onChange={e => setDraft({...draft,time:e.target.value})} style={S.inp} placeholder="e.g. 35 min"/></div>
+                  <div><label style={S.lbl}>Servings</label><input value={draft.servings} onChange={e => setDraft({...draft,servings:e.target.value})} style={S.inp} placeholder="e.g. 12 muffins"/></div>
                   <div style={{ gridColumn:"1/-1" }}>
                     <label style={S.lbl}>Type</label>
                     <div style={{ display:"flex", gap:8 }}>
                       {[["bakes","🧁 Bakes","#fdd87a"],["cooks","🍳 Cooks","#e8855a"]].map(([val,label,color]) => (
-                        <button key={val} onClick={() => setDraft({...draft, cookType: draft.cookType===val ? null : val})}
+                        <button key={val} onClick={() => setDraft({...draft, cookType: draft.cookType===val?null:val})}
                           style={{ flex:1, padding:"8px 12px", borderRadius:8, border:"1.5px solid", cursor:"pointer", fontSize:"0.83rem", fontWeight:600, transition:"all 0.15s",
-                            borderColor: draft.cookType===val ? color : "rgba(196,93,26,0.2)",
-                            background:  draft.cookType===val ? color : "white",
-                            color:       draft.cookType===val ? (val==="bakes" ? "#1a1410" : "white") : "#c45d1a" }}>
+                            borderColor: draft.cookType===val?color:"rgba(196,93,26,0.2)", background: draft.cookType===val?color:"white", color: draft.cookType===val?(val==="bakes"?"#1a1410":"white"):"#c45d1a" }}>
                           {label}
                         </button>
                       ))}
                     </div>
                   </div>
+                  <div style={{ gridColumn:"1/-1" }}>
                     <label style={S.lbl}>Tags</label>
-                    {/* Suggestion chips — hidden while typing */}
                     {(draft.tagSuggestions||[]).length > 0 && !tagInput && (
                       <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom:8 }}>
                         {draft.tagSuggestions.map(t => {
                           const active = draft.tags.includes(t);
-                          return (
-                            <button key={t} onClick={() => setDraft({...draft, tags: active ? draft.tags.filter(x=>x!==t) : [...draft.tags, t]})}
-                              style={{ padding:"5px 12px", borderRadius:20, border:"1.5px solid", cursor:"pointer", fontSize:"0.75rem", fontWeight:500,
-                                borderColor: active ? "#c45d1a":"rgba(196,93,26,0.25)",
-                                background:  active ? "#c45d1a":"white",
-                                color:       active ? "white":"#c45d1a" }}>
-                              {active ? "✓ " : ""}{t}
-                            </button>
-                          );
+                          return <button key={t} onClick={() => setDraft({...draft, tags: active?draft.tags.filter(x=>x!==t):[...draft.tags,t]})}
+                            style={{ padding:"5px 12px", borderRadius:20, border:"1.5px solid", cursor:"pointer", fontSize:"0.75rem", fontWeight:500, borderColor:active?"#c45d1a":"rgba(196,93,26,0.25)", background:active?"#c45d1a":"white", color:active?"white":"#c45d1a" }}>
+                            {active?"✓ ":""}{t}</button>;
                         })}
                       </div>
                     )}
-                    {/* Selected pills visible while typing */}
                     {tagInput && draft.tags.length > 0 && (
                       <div style={{ display:"flex", flexWrap:"wrap", gap:5, marginBottom:7 }}>
                         {draft.tags.map(t => (
                           <span key={t} style={{ display:"inline-flex", alignItems:"center", gap:4, padding:"4px 10px", background:"#c45d1a", color:"white", borderRadius:20, fontSize:"0.74rem", fontWeight:500 }}>
-                            {t}
-                            <button onClick={() => setDraft({...draft, tags: draft.tags.filter(x=>x!==t)})}
-                              style={{ background:"none", border:"none", color:"white", cursor:"pointer", fontSize:"0.75rem", padding:0, lineHeight:1 }}>✕</button>
+                            {t}<button onClick={() => setDraft({...draft, tags:draft.tags.filter(x=>x!==t)})} style={{ background:"none", border:"none", color:"white", cursor:"pointer", fontSize:"0.75rem", padding:0, lineHeight:1 }}>✕</button>
                           </span>
                         ))}
                       </div>
                     )}
-                    <input value={tagInput}
-                      onChange={e => setTagInput(e.target.value)}
-                      onKeyDown={e => {
-                        if ((e.key==="," || e.key==="Enter") && tagInput.trim()) { e.preventDefault(); commitTagInput(); }
-                        else if (e.key==="Backspace" && !tagInput && draft.tags.length) setDraft({...draft, tags: draft.tags.slice(0,-1)});
-                      }}
-                      onBlur={commitTagInput}
-                      style={S.inp} placeholder={draft.tags.length ? "Add more… (comma or Enter)" : "Type a tag and press comma or Enter…"}/>
+                    <input value={tagInput} onChange={e => setTagInput(e.target.value)}
+                      onKeyDown={e => { if((e.key===","||e.key==="Enter")&&tagInput.trim()){e.preventDefault();commitTagInput();} else if(e.key==="Backspace"&&!tagInput&&draft.tags.length) setDraft({...draft,tags:draft.tags.slice(0,-1)}); }}
+                      onBlur={commitTagInput} style={S.inp} placeholder={draft.tags.length?"Add more… (comma or Enter)":"Type a tag and press comma or Enter…"}/>
                   </div>
                 </div>
 
-                {/* Ingredients */}
                 <div style={{ marginTop:16 }}>
                   <div style={S.secLabel}>Ingredients</div>
                   <div style={{ display:"flex", flexDirection:"column", gap:6, marginTop:6 }}>
@@ -516,7 +602,6 @@ function App() {
                   </div>
                 </div>
 
-                {/* Instructions */}
                 <div style={{ marginTop:20 }}>
                   <div style={S.secLabel}>Instructions</div>
                   <div style={{ display:"flex", flexDirection:"column", gap:6, marginTop:6 }}>
@@ -534,7 +619,9 @@ function App() {
                 {error && <div style={{ marginTop:12, padding:"10px 13px", background:"#fdecea", color:"#8b1a1a", borderRadius:7, fontSize:"0.82rem" }}>{error}</div>}
                 <div style={{ display:"flex", gap:10, marginTop:22 }}>
                   <button onClick={() => { setStep(1); setError(""); }} style={{ padding:"12px 18px", background:"transparent", color:"#c45d1a", border:"1.5px solid rgba(196,93,26,0.25)", borderRadius:8, fontSize:"0.88rem", cursor:"pointer" }}>← Back</button>
-                  <button onClick={handleSave} style={{ flex:1, padding:12, background:"#c45d1a", color:"white", border:"none", borderRadius:8, fontSize:"0.9rem", fontWeight:600, cursor:"pointer" }}>💾 Save to Collection</button>
+                  <button onClick={handleSave} style={{ flex:1, padding:12, background:"#c45d1a", color:"white", border:"none", borderRadius:8, fontSize:"0.9rem", fontWeight:600, cursor:"pointer" }}>
+                    {driveEnabled ? "💾 Save & Sync to Drive" : "💾 Save to Collection"}
+                  </button>
                 </div>
               </div>
             )}
@@ -544,7 +631,6 @@ function App() {
     </div>
   );
 }
-
 ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
 </script>
 </body>
