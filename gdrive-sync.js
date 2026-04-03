@@ -41,7 +41,7 @@ class DriveSync {
 
   /** True once the Client ID has been filled in. */
   isConfigured() {
-    return this._clientId && !this._clientId.startsWith("739039916071-ematentftfchllf6asdtsq6hruvvk0ip.apps.googleusercontent.com");
+    return this._clientId && !this._clientId.startsWith("YOUR_CLIENT_ID");
   }
 
   /**
